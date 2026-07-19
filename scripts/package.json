@@ -1,0 +1,1 @@
+﻿{"name":"forgefit-scripts","private":true,"type":"module","scripts":{"check:compose":"node check-compose.mjs"},"dependencies":{"js-yaml":"^4.1.0"}}
