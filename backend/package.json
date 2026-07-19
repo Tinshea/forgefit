@@ -12,6 +12,7 @@
     "ingest": "node src/scripts/ingest.js",
     "seed:demo": "node src/scripts/seed-demo.js",
     "seed:foods": "node src/scripts/seed-foods.js",
+    "import:health": "node src/scripts/import-apple-health.js",
     "test": "node --test \"test/*.test.js\"",
     "test:e2e": "node test/integration.js"
   },

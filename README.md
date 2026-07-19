@@ -264,6 +264,48 @@ normalisé à 1,80 m, qui permet de comparer des gabarits différents.
 > quand le FFMI indique une masse maigre élevée, plutôt que de laisser lire un
 > contresens.
 
+### Faire entrer les données de l'iPhone
+
+Deux voies, **toutes deux gratuites** :
+
+**1. Import de l'historique complet** — le plus simple pour démarrer.
+
+Sur l'iPhone : *Santé → photo de profil → Exporter toutes les données de santé*.
+Un `export.zip` en sort ; le dézipper donne `apple_health_export/export.xml`.
+
+```bash
+cd backend
+npm run import:health -- --file "chemin/export.xml" --dry-run   # simulation
+npm run import:health -- --file "chemin/export.xml"
+```
+
+Récupère **des années d'historique en une fois**. Idempotent : réimporter un
+export plus récent ne duplique rien, grâce à une clé déterministe dérivée du
+type, de la date et de la source — l'export d'Apple ne porte aucun identifiant
+unique.
+
+> Ce fichier atteint couramment plusieurs centaines de mégaoctets : l'app Santé
+> enregistre les pas toutes les quelques minutes depuis des années. L'importeur
+> le lit **en flux, ligne à ligne**, sans jamais le charger en mémoire. Les
+> métriques cumulatives (pas, calories) sont agrégées par jour — les importer
+> fragmentées créerait des centaines de milliers de lignes pour une information
+> qui ne se lit qu'au jour.
+
+**2. Synchronisation continue par Raccourcis** — l'app native d'Apple, gratuite.
+
+Un raccourci qui lit les échantillons Santé et fait un `POST` sur
+`/api/health-sync`, déclenché par automatisation quotidienne. Le webhook accepte
+les formes simples que Raccourcis produit naturellement :
+
+```json
+{"type": "weight", "value": 76.3, "unit": "kg"}
+{"metrics": [{"type": "weight", "value": 76.3}, {"type": "sleep", "value": 7.4}]}
+```
+
+> *Health Auto Export* fait la même chose de façon plus confortable, mais son
+> automatisation REST API est **payante**. Les deux voies ci-dessus ne coûtent
+> rien.
+
 ### La balance connectée remplit le profil
 
 Une balance à impédance (Renpho, Withings…) publie dans Santé bien plus que le
