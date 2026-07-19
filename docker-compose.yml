@@ -1,0 +1,83 @@
+name: forgefit
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: forgefit-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forgefit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forgefit}
+      POSTGRES_DB: ${POSTGRES_DB:-forgefit}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      # Scripts run in lexical order on first boot of an empty volume.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-forgefit} -d ${POSTGRES_DB:-forgefit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - forgefit-internal
+    # No published port: the DB is only reachable from the internal network.
+    # Uncomment for local psql access from the host.
+    # ports: ["5432:5432"]
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: forgefit-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-forgefit}:${POSTGRES_PASSWORD:-forgefit}@db:5432/${POSTGRES_DB:-forgefit}
+      # Shared secret for HMAC verification of inbound health webhooks.
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-secret-change-me}
+      # Comma-separated origins allowed to call the API from a browser.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      EXERCISES_DATASET_URL: ${EXERCISES_DATASET_URL:-https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main/data/exercises.json}
+      # Media lives at the REPO ROOT, not under /data — see scripts/ingest.js.
+      EXERCISES_MEDIA_BASE: ${EXERCISES_MEDIA_BASE:-https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    networks:
+      - forgefit-internal
+      - forgefit-mesh
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked in at build time: Vite inlines env vars into the bundle.
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:3000}
+    container_name: forgefit-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    networks:
+      - forgefit-internal
+
+networks:
+  # Private bridge: db <-> api <-> web. Not reachable by sibling stacks.
+  forgefit-internal:
+    driver: bridge
+
+  # Shared mesh so this stack plugs into a wider data pipeline as a
+  # microservice. Create once on the host:
+  #   docker network create forgefit-mesh
+  # Other services then reach this one at http://forgefit-api:3000
+  forgefit-mesh:
+    external: true
+    name: ${MESH_NETWORK:-forgefit-mesh}
+
+volumes:
+  db_data:
