@@ -55,8 +55,21 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Baked in at build time: Vite inlines env vars into the bundle.
-        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:3000}
+        # VIDE par défaut, et c'est volontaire.
+        #
+        # Vite INLINE cette valeur dans le bundle au moment du build : ce
+        # n'est pas une variable lue à l'exécution. Y mettre
+        # « http://localhost:3000 » ferait appeler au navigateur SA
+        # PROPRE machine — l'app ne fonctionnerait que depuis l'hôte
+        # Docker lui-même.
+        #
+        # Vide, les requêtes partent en relatif vers la même origine, et
+        # nginx les relaie vers le conteneur api (cf. nginx.conf). C'est
+        # aussi ce qui évite tout préflight CORS en production.
+        #
+        # À ne renseigner que si l'API est servie sur un domaine
+        # RÉELLEMENT distinct du front.
+        VITE_API_BASE: ${VITE_API_BASE:-}
     container_name: forgefit-web
     restart: unless-stopped
     depends_on:
@@ -67,16 +80,24 @@ services:
       - forgefit-internal
 
 networks:
-  # Private bridge: db <-> api <-> web. Not reachable by sibling stacks.
+  # Pont privé : db <-> api <-> web. Injoignable par les stacks voisines.
   forgefit-internal:
     driver: bridge
 
-  # Shared mesh so this stack plugs into a wider data pipeline as a
-  # microservice. Create once on the host:
-  #   docker network create forgefit-mesh
-  # Other services then reach this one at http://forgefit-api:3000
+  # Maillage partagé : c'est par là que cette stack s'intègre à un
+  # pipeline de données plus large. Les services voisins joignent l'API
+  # à http://forgefit-api:3000.
+  #
+  # Volontairement NON externe : un réseau `external: true` doit exister
+  # avant le déploiement, sinon la stack échoue avec « network not
+  # found » — piège classique sur Portainer, où l'on n'a pas forcément
+  # de shell pour lancer `docker network create`.
+  #
+  # `name:` fige le nom du réseau indépendamment du nom de la stack, donc
+  # une autre stack peut s'y rattacher de façon prévisible :
+  #   networks: { forgefit-mesh: { external: true, name: forgefit-mesh } }
   forgefit-mesh:
-    external: true
+    driver: bridge
     name: ${MESH_NETWORK:-forgefit-mesh}
 
 volumes:
