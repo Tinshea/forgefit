@@ -1,15 +1,108 @@
 # Déploiement
 
-## Portainer
+Deux fichiers, deux usages :
+
+| Fichier | Source des images | Méthode Portainer |
+|---|---|---|
+| `docker-compose.yml` | construites depuis les sources | Repository |
+| `docker-compose.prod.yml` | tirées de GHCR | **Éditeur web** |
+
+**Utiliser `docker-compose.prod.yml`.** Rien à construire, et la mise à jour se
+fait en un clic.
+
+---
+
+## Portainer, à partir des images publiées
+
+### 1. Publier les images
+
+À chaque push sur `main`, `.github/workflows/docker.yml` construit et publie
+trois images sur GitHub Container Registry :
+
+```
+ghcr.io/<compte>/forgefit-api:latest
+ghcr.io/<compte>/forgefit-web:latest
+ghcr.io/<compte>/forgefit-db:latest
+```
+
+Étiquettes produites : `latest`, la version si le commit porte un tag `vX.Y.Z`,
+et le hash court du commit — ce dernier permet de revenir en arrière
+précisément.
+
+**Rendre les paquets publics.** Le dépôt étant privé, les images le sont aussi,
+et Portainer devrait s'authentifier. Plus simple : GitHub → *Packages* →
+chaque paquet → *Package settings* → *Change visibility* → **Public**. Les
+images ne contiennent aucun secret ; ceux-ci arrivent par variables
+d'environnement au démarrage.
+
+Sinon : Portainer → *Registries* → *Add registry* → *Custom* → `ghcr.io`, avec un
+jeton d'accès personnel de portée `read:packages`.
+
+### 2. Créer la stack
+
+Portainer → *Stacks* → *Add stack* → **Web editor**, puis coller le contenu de
+`docker-compose.prod.yml`.
+
+### 3. Variables d'environnement
+
+| Variable | Valeur | |
+|---|---|---|
+| `GITHUB_OWNER` | ton compte GitHub, en minuscules | |
+| `POSTGRES_PASSWORD` | mot de passe fort | **obligatoire** |
+| `WEBHOOK_SECRET` | chaîne aléatoire | **obligatoire** |
+| `CORS_ORIGINS` | `http://<ip-hôte>:8080` | |
+| `WEB_PORT` / `API_PORT` | `8080` / `3000` | si ces ports sont libres |
+| `TAG` | `latest` | ou un hash de commit pour figer une version |
+
+Les deux variables obligatoires utilisent la syntaxe `${VAR:?message}` : la stack
+**refuse de démarrer** si elles manquent, plutôt que de tourner avec un mot de
+passe par défaut ou sans vérification de signature.
+
+### 4. Peupler la base
+
+Le schéma s'applique tout seul au premier démarrage — il est embarqué dans
+l'image `forgefit-db`. Restent les données, via *Containers → forgefit-api →
+Console* :
+
+```bash
+npm run ingest       # 1324 exercices
+npm run seed:foods   # catalogue d'aliments
+```
+
+### 5. Mettre à jour
+
+Après un push sur `main`, attendre la fin du workflow, puis :
+
+Portainer → *Stacks* → `forgefit` → **Update the stack** → cocher
+**Re-pull image** → *Update*.
+
+Quelques secondes d'indisponibilité. Le volume `db_data` n'est pas touché : les
+données survivent.
+
+> **Mise à jour automatique.** Ajouter [Watchtower](https://containrrr.dev/watchtower/)
+> à côté de la stack surveille GHCR et redéploie seul. Pratique, mais on perd la
+> maîtrise du moment où l'application change — sur un service qu'on utilise
+> quotidiennement, la mise à jour manuelle en un clic est souvent préférable.
+
+### Revenir en arrière
+
+Passer `TAG` au hash court d'un commit antérieur (visible dans les étiquettes
+publiées) et redéployer. C'est la raison d'être de cette étiquette : `latest`
+seul ne permet aucun retour arrière.
+
+---
+
+## Portainer, à partir des sources
+
+À n'utiliser que pour déployer une branche non publiée.
 
 ### Le point qui coince
 
-La stack utilise `build:` pour l'API et le front. **L'éditeur web de Portainer
-ne peut pas construire d'image** : il n'a aucun contexte de build sur le serveur.
-Coller le `docker-compose.yml` dans l'éditeur échouera.
+`docker-compose.yml` utilise `build:`. **L'éditeur web de Portainer ne peut pas
+construire d'image** : il n'a aucun contexte de build sur le serveur.
 
-Il faut donc la méthode **Repository**, où Portainer clone le dépôt et construit
-sur l'hôte.
+Il faut la méthode **Repository**, où Portainer clone le dépôt et construit sur
+l'hôte.
 
 ### Étapes
 

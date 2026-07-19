@@ -1,0 +1,96 @@
+name: Publier les images
+
+# Publie sur GitHub Container Registry à chaque push sur main, et sur
+# chaque tag de version.
+#
+# Une fois les images publiées, le déploiement ne construit plus rien :
+# Portainer tire `:latest` et redémarre. C'est ce qui rend la mise à jour
+# indolore — et ce qui permet enfin d'utiliser l'éditeur web de
+# Portainer, qui ne sait pas construire faute de contexte de build.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  # Permet de republier sans commit, depuis l'onglet Actions.
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      # Une image cassée ne doit pas empêcher l'autre d'être publiée :
+      # les deux services se déploient indépendamment.
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: ./backend
+          - name: web
+            context: ./frontend
+          # La base embarque le schéma : sans cela, un déploiement
+          # depuis l'éditeur web de Portainer démarrerait sur une base
+          # vide, faute de sources sur le serveur pour le montage.
+          - name: db
+            context: ./db
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurer Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Se connecter à GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calculer les étiquettes
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.name }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+
+      - name: Construire et publier
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache porté par le registre : sans lui, chaque build
+          # réinstalle toutes les dépendances npm.
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          # ┌─ POURQUOI amd64 SEUL ────────────────────────────────────┐
+          # │ Ajouter linux/arm64 (Raspberry Pi, NAS ARM) fait passer  │
+          # │ la construction du front par l'émulation QEMU : `npm     │
+          # │ install` et `vite build` y prennent plusieurs fois plus  │
+          # │ de temps, et les minutes d'Actions sont comptées sur un  │
+          # │ dépôt privé.                                             │
+          # │                                                           │
+          # │ Pour cibler un ARM, ajouter ci-dessous :                 │
+          # │   platforms: linux/amd64,linux/arm64                     │
+          # └───────────────────────────────────────────────────────────┘
+          platforms: linux/amd64
+
+      - name: Récapitulatif
+        run: |
+          echo "### Image \`${{ matrix.name }}\` publiée" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
