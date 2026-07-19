@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+
+# Secrets et données locales — jamais versionnés.
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Artefacts de développement
+coverage/
+.vite/
+*.local
+
+# Dataset téléchargé : reconstruit par `npm run ingest`, 16 Mo inutiles
+# dans l'historique.
+exercises.json

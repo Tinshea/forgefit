@@ -1,0 +1,573 @@
+/* =====================================================================
+   Muscu / Santé ++ — jetons de design
+   Palette validee (validate_palette.js, mode sombre, surface #1a1a19) :
+   les deux teintes de serie passent tous les controles en all-pairs.
+   ===================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  /* Plans */
+  --plane:        #0d0d0d;
+  --surface-1:    #1a1a19;
+  --surface-2:    #222220;
+  --surface-3:    #2c2c2a;
+
+  /* Encre */
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #898781;
+
+  /* Traits */
+  --grid:     #2c2c2a;
+  --axis:     #383835;
+  --border:   rgba(255, 255, 255, 0.10);
+
+  /* Series categorielles (ordre documente, mode sombre) */
+  --series-1: #3987e5;  /* bleu   — athlete */
+  --series-2: #008300;  /* vert   — reference population */
+
+  /* Statuts (jamais reutilises comme couleur de serie) */
+  --good:     #0ca30c;
+  --warning:  #fab219;
+  --serious:  #ec835a;
+  --critical: #d03b3b;
+
+  /* Rampe sequentielle de fatigue : une seule teinte, luminance
+     croissante depuis la surface (verifiee monotone). */
+  --fatigue-0: #2c2c2a;
+  --fatigue-1: #5c2b28;
+  --fatigue-2: #8f3a33;
+  --fatigue-3: #bf4a3f;
+  --fatigue-4: #e0604f;
+  --fatigue-5: #f5836a;
+
+  --radius:   14px;
+  --radius-s: 10px;
+
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--plane);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  /* Zones sures iOS : la barre d'action basse ne doit pas passer sous
+     l'indicateur d'accueil. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+input, select {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  padding: 12px 14px;
+}
+
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
+
+/* --- Ossature ------------------------------------------------------- */
+
+.app {
+  min-height: 100vh;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(13, 13, 13, 0.88);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand { font-weight: 700; letter-spacing: -0.02em; }
+.brand span { color: var(--text-muted); font-weight: 500; }
+
+.tabs { display: flex; gap: 4px; }
+
+/* --- Navigation à deux niveaux --------------------------------------
+   Sections (ce qu'on vient faire) puis pages. Sur mobile les sections
+   passent dans une barre basse, atteignable au pouce ; la barre haute
+   ne garde que la marque. */
+
+.sections-desktop { display: none; gap: 4px; }
+
+@media (min-width: 700px) {
+  .sections-desktop { display: flex; }
+}
+
+/* Sous-navigation : collante sous l'en-tête, elle reste accessible
+   pendant qu'on fait défiler une longue page d'analyse. */
+.subnav {
+  position: sticky;
+  top: 57px;
+  z-index: 15;
+  background: rgba(13, 13, 13, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.subnav-scroll {
+  display: flex;
+  gap: 2px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.subnav-scroll::-webkit-scrollbar { display: none; }
+
+.subtab {
+  flex: none;
+  white-space: nowrap;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.subtab[aria-current='page'] {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+
+/* Rappel de ce que fait l'écran : une barre d'onglets seule ne dit pas
+   à quoi sert la page qu'on vient d'ouvrir. */
+.page-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* --- Barre basse (mobile) ------------------------------------------- */
+
+.bottombar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  background: rgba(13, 13, 13, 0.96);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (min-width: 700px) {
+  .bottombar { display: none; }
+}
+
+.bottomtab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 4px 7px;
+  color: var(--text-muted);
+  /* Cible tactile confortable, pouce sur un grand téléphone. */
+  min-height: 56px;
+}
+
+.bottomtab[aria-current='page'] { color: var(--series-1); }
+
+.bottomtab-icon { font-size: 19px; line-height: 1; }
+
+.bottomtab-label {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.tab {
+  padding: 8px 14px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.tab[aria-selected='true'] {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+
+.content {
+  padding: 16px;
+  /* Dégage la barre basse, sinon elle recouvre le dernier élément de
+     chaque page — typiquement un bouton de validation. */
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 700px) {
+  .content { padding-bottom: 32px; }
+}
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+.card + .card { margin-top: 14px; }
+
+.card-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.card-sub {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.grid { display: grid; gap: 14px; }
+
+@media (min-width: 900px) {
+  .content { padding: 24px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-dash { grid-template-columns: 1.1fr 0.9fr; align-items: start; }
+}
+
+/* --- Tuiles de statistiques ----------------------------------------- */
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+@media (min-width: 700px) {
+  .stat-row { grid-template-columns: repeat(4, 1fr); }
+}
+
+.stat {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  margin-top: 6px;
+  line-height: 1.1;
+}
+
+.stat-unit { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+
+/* --- Badge de rang -------------------------------------------------- */
+
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  font-size: 32px;
+  font-weight: 800;
+  /* La lettre porte le sens : la couleur ne fait que la renforcer. */
+  border: 2px solid currentColor;
+}
+
+.rank-S { color: var(--good); }
+.rank-A { color: var(--series-2); }
+.rank-B { color: var(--series-1); }
+.rank-C { color: var(--warning); }
+.rank-D { color: var(--serious); }
+.rank-E { color: var(--serious); }
+.rank-F { color: var(--critical); }
+
+/* --- Mode Terrain (mobile) ------------------------------------------ */
+
+.field-search {
+  width: 100%;
+  font-size: 16px; /* < 16px : iOS zoome au focus */
+}
+
+.exercise-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 52vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.exercise-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  /* Cible tactile confortable, gants ou mains moites. */
+  min-height: 60px;
+}
+.exercise-item[aria-pressed='true'] {
+  border-color: var(--series-1);
+  background: var(--surface-3);
+}
+
+.exercise-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface-3);
+  flex: none;
+}
+
+.exercise-name { font-size: 14px; font-weight: 600; line-height: 1.25; }
+.exercise-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-3);
+  color: var(--text-secondary);
+}
+
+/* Saisie charge / reps : gros chiffres, gros boutons. */
+.numpad-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.field-block label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.stepper {
+  display: grid;
+  grid-template-columns: 52px 1fr 52px;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.stepper button {
+  background: var(--surface-3);
+  border-radius: var(--radius-s);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.stepper button:active { background: var(--series-1); color: #fff; }
+
+.stepper input {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 12px 4px;
+}
+
+.btn-primary {
+  width: 100%;
+  margin-top: 14px;
+  padding: 18px;
+  border-radius: var(--radius);
+  background: var(--series-1);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+}
+.btn-primary:disabled { opacity: 0.4; }
+
+.btn-ghost {
+  padding: 10px 14px;
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* --- Hydratation ---------------------------------------------------- */
+
+.water-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.water-btn {
+  padding: 16px 8px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 700;
+}
+.water-btn:active { background: var(--series-1); }
+
+.gauge {
+  height: 14px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.gauge-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--series-1);
+  transition: width 320ms ease;
+}
+
+/* --- Journal -------------------------------------------------------- */
+
+.log-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--grid);
+  font-size: 14px;
+}
+.log-line:last-child { border-bottom: none; }
+.log-meta { color: var(--text-muted); font-size: 12px; }
+.log-value { font-variant-numeric: tabular-nums; font-weight: 650; }
+
+/* --- Tableau (vue alternative aux graphiques) ------------------------ */
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table th, .data-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--grid);
+}
+.data-table th { color: var(--text-muted); font-weight: 600; }
+.data-table td { font-variant-numeric: tabular-nums; }
+
+.table-toggle {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+/* --- Divers --------------------------------------------------------- */
+
+.empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.error-banner {
+  padding: 12px 14px;
+  border-radius: var(--radius-s);
+  background: rgba(208, 59, 59, 0.14);
+  border: 1px solid var(--critical);
+  color: var(--text-primary);
+  font-size: 14px;
+  margin-bottom: 14px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  /* Au-dessus de la barre basse, sinon la confirmation d'une série
+     s'affiche derrière elle. */
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 50;
+}
+
+/* Sans barre basse sur grand écran, la contrainte disparaît. */
+@media (min-width: 700px) {
+  .toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
