@@ -78,12 +78,26 @@ if (named.length) {
 
 console.log('\n=== Verifications applicatives ===');
 const web = doc.services.web;
-const viteBase = web?.build?.args?.VITE_API_BASE;
-if (viteBase === null || viteBase === '' || /\$\{VITE_API_BASE:-\}$/.test(String(viteBase))) {
-  ok('VITE_API_BASE vide : le front appellera son. propre origine, relayee par nginx');
+if (!web?.build) {
+  // Compose a base d'images : la valeur a ete figee a la construction,
+  // il n'y a rien a verifier ici.
+  ok('front deploye depuis une image pre-construite');
 } else {
-  fail(`VITE_API_BASE = « ${viteBase} » — inline dans le bundle au build. `
-    + 'Une valeur en dur casse l\'acces depuis toute autre machine que l\'hote.');
+  const viteBase = web.build.args?.VITE_API_BASE;
+  if (viteBase === null || viteBase === '' || /\$\{VITE_API_BASE:-\}$/.test(String(viteBase))) {
+    ok('VITE_API_BASE vide : le front appelle sa propre origine, relayee par nginx');
+  } else {
+    fail(`VITE_API_BASE = « ${viteBase} » — inline dans le bundle au build. `
+      + 'Une valeur en dur casse l\'acces depuis toute autre machine que l\'hote.');
+  }
+}
+
+// Une image referencee sans etiquette suit implicitement :latest, ce qui
+// rend le deploiement non reproductible.
+for (const [name, svc] of Object.entries(doc.services ?? {})) {
+  if (svc.image && !String(svc.image).includes(':')) {
+    warn(`${name} : image sans etiquette, « :latest » implicite`);
+  }
 }
 
 const api = doc.services.api;
