@@ -120,7 +120,7 @@ section('Hydratation (delta, base déjà peuplée)');
   const before = await j('/api/health/hydration/today');
   const start = Number(before.body.total_ml);
 
-  await j('/api/health/hydration', { method: 'POST', body: JSON.stringify({ amount_ml: 250 }) });
+  const a = await j('/api/health/hydration', { method: 'POST', body: JSON.stringify({ amount_ml: 250 }) });
   const r = await j('/api/health/hydration', { method: 'POST', body: JSON.stringify({ amount_ml: 500 }) });
   check('cumul +750 ml', Number(r.body?.total_ml) === start + 750,
     `${start} -> ${r.body?.total_ml}`);
@@ -130,6 +130,16 @@ section('Hydratation (delta, base déjà peuplée)');
 
   const bad = await j('/api/health/hydration', { method: 'POST', body: JSON.stringify({ amount_ml: 99999 }) });
   check('quantité hors bornes rejetée', bad.status === 400);
+
+  // Le total revient bien à zéro, mais trois lignes fictives resteraient
+  // dans l'historique à chaque exécution. Sur l'instance réelle, elles
+  // s'accumulent.
+  for (const id of [a.body?.id, r.body?.id, undo.body?.id]) {
+    if (id) await j(`/api/health/metrics/${id}`, { method: 'DELETE' });
+  }
+  const net = await j('/api/health/hydration/today');
+  check('aucune ligne d’hydratation fictive laissée',
+    Number(net.body.total_ml) === start, `${start} vs ${net.body.total_ml}`);
 }
 
 section('Webhook universel (asynchrone)');
@@ -206,6 +216,32 @@ section('Analytique');
   check('pas cumulés, VFC moyennée',
     series.body.series.find((s) => s.metric_type === 'steps')?.aggregate === 'sum'
     && series.body.series.find((s) => s.metric_type === 'hrv')?.aggregate === 'avg');
+
+  // La page de suivi demande une quinzaine de métriques d'un coup. Un
+  // ancien plafond à 10 les tronquait SANS ERREUR : la moitié des
+  // graphiques disparaissait de l'écran sans que rien ne le signale.
+  const tous = [
+    'sleep', 'hrv', 'resting_hr', 'respiratory_rate',
+    'steps', 'exercise_minutes', 'calories_active', 'distance', 'flights',
+    'weight', 'body_fat', 'lean_mass', 'bmi',
+    'calories_basal', 'vo2max', 'hydration',
+  ];
+  const large = await j(`/api/health/series?types=${tous.join(',')}&days=30`);
+  check('16 métriques demandées, aucune tronquée',
+    large.status === 200
+    && large.body.series.every((s) => tous.includes(s.metric_type)));
+
+  // Une demande hors limite doit échouer franchement plutôt que de
+  // rendre un résultat partiel qu'on croirait complet.
+  const trop = await j(`/api/health/series?types=${
+    Array.from({ length: 40 }, (_, i) => `m${i}`).join(',')}`);
+  check('au-delà du plafond : erreur explicite', trop.status === 400);
+
+  // La distance et les étages se cumulent comme les pas : les moyenner
+  // afficherait 3 km parcourus au lieu de 12.
+  const cumuls = await j('/api/health/series?types=distance,flights,exercise_minutes&days=90');
+  check('distance, étages et minutes cumulés',
+    cumuls.body.series.every((s) => s.aggregate === 'sum'));
 }
 
 section('Programme');
@@ -400,6 +436,23 @@ section('Balance connectée → profil');
     method: 'PUT', body: JSON.stringify({ height_cm: 400 }),
   });
   check('taille absurde rejetée', bad.status === 400);
+
+  // Nettoyage indispensable : cette suite tourne contre l'instance
+  // RÉELLE. Sans cela, une pesée fictive de 76,4 kg à 14,8 % de masse
+  // grasse devient la mesure la plus récente et fausse le profil, le
+  // métabolisme et tous les graphiques de l'utilisateur — c'est
+  // exactement ce qui s'est produit.
+  const restants = await j('/api/health/metrics?limit=200');
+  const miens = (restants.body?.items ?? [])
+    .filter((m) => String(m.external_id ?? '').startsWith(RUN));
+  for (const m of miens) {
+    await j(`/api/health/metrics/${m.id}`, { method: 'DELETE' });
+  }
+  const apres = await j('/api/health/metrics?limit=200');
+  check('pesée de test retirée de l’instance',
+    !(apres.body?.items ?? []).some((m) => Math.abs(m.magnitude - 14.8) < 0.001
+      && m.metric_type === 'body_fat'),
+    `${miens.length} mesure(s) supprimée(s)`);
 }
 
 section('CORS (écritures depuis le navigateur)');

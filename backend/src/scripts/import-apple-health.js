@@ -26,7 +26,9 @@ import readline from 'node:readline';
 import crypto from 'node:crypto';
 import { pool, waitForDatabase } from '../db.js';
 import { config } from '../config.js';
-import { canonicalType, normalizePercent } from '../services/adapters.js';
+import {
+  canonicalType, normalizePercent, CUMULATIVE_TYPES, AVERAGED_TYPES,
+} from '../services/adapters.js';
 
 const args = process.argv.slice(2);
 const flag = (f) => args.includes(f);
@@ -54,6 +56,11 @@ const TRACKED = new Set([
   'weight', 'body_fat', 'lean_mass', 'bmi', 'height',
   'sleep', 'hrv', 'resting_hr', 'steps',
   'calories_active', 'calories_basal', 'vo2max', 'spo2',
+  // L'hydratation manquait : les applications de suivi d'eau
+  // (WaterMinder et consorts) publient dans Santé, et la jauge
+  // quotidienne de l'app attend précisément ces valeurs.
+  'hydration',
+  'exercise_minutes', 'distance', 'respiratory_rate', 'flights',
 ]);
 
 /**
@@ -65,7 +72,113 @@ const TRACKED = new Set([
  * Les autres sont ponctuelles — une pesée, une mesure de VFC — et se
  * conservent telles quelles.
  */
-const CUMULATIVE = new Set(['steps', 'calories_active', 'calories_basal']);
+// Cumul et moyenne : même définition qu'à la lecture (cf. adapters.js).
+// Sommer vingt mesures de fréquence respiratoire donnerait 320
+// respirations par minute ; et les garder une par une gonflerait la base
+// de 20 000 lignes pour une grandeur qui ne se lit qu'en tendance.
+const CUMULATIVE = CUMULATIVE_TYPES;
+const AVERAGED = AVERAGED_TYPES;
+
+/**
+ * Fusionne les agrégats journaliers en une valeur par type et par jour.
+ *
+ * Le même pas est compté DEUX FOIS dans un export Santé : l'iPhone dans
+ * la poche et la montre au poignet l'enregistrent chacun de leur côté,
+ * et l'export les livre tels quels. Les additionner produit des
+ * impossibilités physiques — 25 heures d'exercice dans une journée,
+ * 11 000 kcal de métabolisme de base pour quelqu'un qui en dépense
+ * 1 700. L'app Santé, elle, n'affiche qu'une source à la fois selon un
+ * ordre de priorité par appareil.
+ *
+ * On applique la même logique sans avoir cet ordre de priorité :
+ *  — cumul  : on retient la source qui rapporte le plus, les autres
+ *             n'étant qu'une mesure partielle du même phénomène ;
+ *  — moyenne: on retient la source la mieux échantillonnée, une moyenne
+ *             de moyennes hétérogènes n'ayant pas de sens.
+ */
+/**
+ * Plages physiologiquement possibles, par jour pour les cumuls.
+ *
+ * Un export Santé contient des mesures fausses : capteur resté actif,
+ * appareil mal réinitialisé, application tierce qui écrit n'importe
+ * quoi. Sur ce jeu de données réel il restait, après déduplication,
+ * 8 940 kcal de métabolisme de base (pour 1 700 réels) et exactement
+ * 1 440 minutes d'exercice — soit 24 h pile, la signature d'un compteur
+ * qui n'a jamais été remis à zéro.
+ *
+ * Ces valeurs sont rares mais tirent fortement les moyennes et écrasent
+ * l'échelle des graphiques. Les bornes sont volontairement LARGES : on
+ * ne cherche pas à juger la performance de l'utilisateur, seulement à
+ * écarter ce qu'aucun corps humain ne peut produire. Un ultra-trail à
+ * 80 000 pas passe ; 24 h d'exercice non.
+ */
+const PLAUSIBLE = {
+  steps: [0, 100_000],
+  distance: [0, 100],            // km
+  flights: [0, 300],
+  calories_active: [0, 8000],
+  calories_basal: [800, 4000],
+  exercise_minutes: [0, 720],    // 12 h
+  hydration: [0, 15_000],        // mL
+  sleep: [0, 14],                // h
+  hrv: [1, 400],                 // ms
+  resting_hr: [25, 130],
+  heart_rate: [25, 230],
+  respiratory_rate: [4, 45],
+  weight: [25, 400],             // kg
+  height: [100, 250],            // cm
+  bmi: [8, 70],
+  lean_mass: [15, 200],          // kg
+  body_fat: [2, 70],             // %
+  vo2max: [10, 95],
+  spo2: [50, 100],               // %
+};
+
+const aberrantes = new Map();
+
+function plausible(type, value) {
+  const bornes = PLAUSIBLE[type];
+  if (!bornes) return true;      // type sans borne connue : on ne juge pas
+  return value >= bornes[0] && value <= bornes[1];
+}
+
+function dedupeDaily(daily) {
+  const best = new Map();
+  for (const d of daily.values()) {
+    const key = `${d.type}|${d.day}`;
+    const val = AVERAGED.has(d.type) ? d.total / d.count : d.total;
+    const rank = AVERAGED.has(d.type) ? d.count : val;
+    const prev = best.get(key);
+    if (!prev || rank > prev.rank) {
+      best.set(key, { type: d.type, day: d.day, unit: d.unit, value: val, rank });
+    }
+  }
+  return [...best.values()];
+}
+
+/**
+ * Le sommeil n'est pas une quantité mais une CATÉGORIE.
+ *
+ * Ses enregistrements portent une valeur textuelle — « InBed »,
+ * « AsleepCore », « AsleepREM » — et non un nombre : `Number()` y
+ * renvoyait NaN, et les 22 000 enregistrements de sommeil étaient
+ * silencieusement écartés.
+ *
+ * La durée se déduit de l'écart entre début et fin. Chaque nuit est
+ * rattachée au jour du RÉVEIL : une nuit commencée à 23 h appartient au
+ * lendemain, sinon elle serait comptée sur la veille et un décalage
+ * d'une heure ferait changer de jour.
+ */
+const SLEEP_TYPE = 'HKCategoryTypeIdentifierSleepAnalysis';
+
+/**
+ * Avant iOS 16, seul « InBed » existait ; depuis, les phases sont
+ * détaillées. On privilégie le sommeil réel et on ne retombe sur le
+ * temps au lit que pour les nuits sans phase détaillée — sans quoi les
+ * années anciennes disparaîtraient.
+ */
+const isAsleep = (v) => /AsleepCore|AsleepDeep|AsleepREM|AsleepUnspecified|^HKCategoryValueSleepAnalysisAsleep$/.test(v);
+const isInBed = (v) => /InBed/.test(v);
 
 /** Attribut d'une balise Record. Les valeurs sont entre guillemets. */
 const attr = (line, name) => {
@@ -105,6 +218,9 @@ async function main() {
 
   const punctual = [];                 // mesures ponctuelles
   const daily = new Map();             // cumuls : clé `type|jour` → total
+  // Sommeil : deux accumulateurs par nuit, le second servant de repli.
+  const sleepAsleep = new Map();
+  const sleepInBed = new Map();
   const stats = { lines: 0, records: 0, kept: 0, skipped: 0 };
   const byType = new Map();
 
@@ -114,6 +230,39 @@ async function main() {
     stats.records += 1;
 
     const rawType = attr(line, 'type');
+
+    // Le sommeil se traite à part : sa valeur est un libellé, sa durée
+    // se déduit des horodatages.
+    if (rawType === SLEEP_TYPE) {
+      const v = attr(line, 'value') ?? '';
+      const asleep = isAsleep(v);
+      const inBed = isInBed(v);
+      if (!asleep && !inBed) { stats.skipped += 1; continue; }
+
+      const from = new Date(attr(line, 'startDate'));
+      const to = new Date(attr(line, 'endDate'));
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+        stats.skipped += 1; continue;
+      }
+      const hours = (to - from) / 3_600_000;
+      // Une phase de plus de 18 h n'est pas du sommeil mais une erreur
+      // de saisie ou un capteur resté actif.
+      if (!(hours > 0) || hours > 18) { stats.skipped += 1; continue; }
+      if (SINCE && to < SINCE) { stats.skipped += 1; continue; }
+
+      const night = to.toISOString().slice(0, 10); // jour du réveil
+      // Montre et téléphone enregistrent la même nuit : on cumule par
+      // source, la fusion se fait ensuite (cf. nuitsFusionnees).
+      const who = attr(line, 'sourceName') ?? 'apple_health';
+      const bucket = asleep ? sleepAsleep : sleepInBed;
+      const k = `${night}|${who}`;
+      bucket.set(k, (bucket.get(k) ?? 0) + hours);
+
+      stats.kept += 1;
+      byType.set('sleep', (byType.get('sleep') ?? 0) + 1);
+      continue;
+    }
+
     const type = canonicalType(rawType);
     if (!TRACKED.has(type)) { stats.skipped += 1; continue; }
 
@@ -130,12 +279,13 @@ async function main() {
     const unit = attr(line, 'unit');
     const source = attr(line, 'sourceName') ?? 'apple_health';
 
-    if (CUMULATIVE.has(type)) {
+    if (CUMULATIVE.has(type) || AVERAGED.has(type)) {
       const day = at.toISOString().slice(0, 10);
-      const key = `${type}|${day}`;
+      // La SOURCE fait partie de la clé : voir dedupeDaily.
+      const key = `${type}|${day}|${source}`;
       const prev = daily.get(key);
-      if (prev) prev.total += num;
-      else daily.set(key, { type, day, total: num, unit, source });
+      if (prev) { prev.total += num; prev.count += 1; }
+      else daily.set(key, { type, day, total: num, count: 1, unit, source });
     } else {
       punctual.push({ type, at, num, unit, source, startDate });
     }
@@ -154,11 +304,45 @@ async function main() {
 
   console.log('\n=== Répartition par type ===');
   for (const [t, n] of [...byType.entries()].sort((a, b) => b[1] - a[1])) {
-    const mode = CUMULATIVE.has(t) ? 'cumulé par jour' : 'ponctuel';
-    console.log(`  ${t.padEnd(16)} ${String(n).padStart(8)}  (${mode})`);
+    const mode = CUMULATIVE.has(t) ? 'cumulé/jour'
+      : AVERAGED.has(t) ? 'moyenné/jour'
+        : t === 'sleep' ? 'durée par nuit' : 'ponctuel';
+    console.log(`  ${t.padEnd(18)} ${String(n).padStart(8)}  (${mode})`);
   }
 
-  const rows = [
+  // Une nuit sans phase détaillée retombe sur le temps passé au lit :
+  // c'est le seul signal disponible avant iOS 16, et l'écarter ferait
+  // disparaître des années d'historique.
+  // Une nuit vue par deux appareils ne dure pas deux fois plus : on
+  // garde la plus longue observation, pas leur somme.
+  const nuitsFusionnees = (bucket) => {
+    const out = new Map();
+    for (const [k, h] of bucket) {
+      const night = k.slice(0, 10);
+      if (h > (out.get(night) ?? 0)) out.set(night, h);
+    }
+    return out;
+  };
+  const phases = nuitsFusionnees(sleepAsleep);
+  const auLit = nuitsFusionnees(sleepInBed);
+
+  const nights = new Set([...phases.keys(), ...auLit.keys()]);
+  const sleepRows = [...nights].map((night) => ({
+    type: 'sleep',
+    at: new Date(`${night}T08:00:00Z`),
+    unit: 'h',
+    source: 'apple_health',
+    externalId: keyFor(['ah', 'sleep', night]),
+    value: Math.round((phases.get(night) ?? auLit.get(night)) * 100) / 100,
+  }));
+  if (sleepRows.length) {
+    console.log(`\n[import] sommeil : ${sleepRows.length} nuits `
+      + `(${phases.size} avec phases détaillées, `
+      + `${nights.size - phases.size} au temps passé au lit)`);
+  }
+
+  const brutes = [
+    ...sleepRows,
     ...punctual.map((r) => ({
       type: r.type,
       at: r.at,
@@ -167,20 +351,41 @@ async function main() {
       externalId: keyFor(['ah', r.type, r.startDate, r.source]),
       value: Math.round(r.num * 1000) / 1000,
     })),
-    ...[...daily.values()].map((d) => ({
+    ...dedupeDaily(daily).map((d) => ({
       type: d.type,
-      // Milieu de journée : une somme quotidienne n'a pas d'heure, et
+      // Milieu de journée : une valeur quotidienne n'a pas d'heure, et
       // midi évite qu'un décalage de fuseau la fasse changer de jour.
       at: new Date(`${d.day}T12:00:00Z`),
       unit: d.unit,
       source: 'apple_health',
       externalId: keyFor(['ah', d.type, d.day]),
-      value: Math.round(d.total * 1000) / 1000,
+      value: Math.round(d.value * 1000) / 1000,
     })),
   ];
 
+  const rows = brutes.filter((r) => {
+    if (plausible(r.type, r.value)) return true;
+    aberrantes.set(r.type, (aberrantes.get(r.type) ?? 0) + 1);
+    return false;
+  });
+  if (aberrantes.size) {
+    const detail = [...aberrantes.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([t, n]) => `${t}×${n}`).join(', ');
+    console.log(`\n[import] ${[...aberrantes.values()].reduce((a, b) => a + b, 0)} `
+      + `valeurs hors plage physiologique écartées : ${detail}`);
+  }
+
+  const nbNuits = rows.filter((r) => r.type === 'sleep').length;
+  const nbJournaliers = rows.filter(
+    (r) => r.type !== 'sleep' && (CUMULATIVE.has(r.type) || AVERAGED.has(r.type)),
+  ).length;
   console.log(`\n[import] ${rows.length.toLocaleString('fr-FR')} lignes à écrire `
-    + `(${punctual.length.toLocaleString('fr-FR')} ponctuelles, ${daily.size.toLocaleString('fr-FR')} cumuls journaliers)`);
+    + `(${(rows.length - nbNuits - nbJournaliers).toLocaleString('fr-FR')} ponctuelles, `
+    + `${nbJournaliers.toLocaleString('fr-FR')} journalières, `
+    + `${nbNuits.toLocaleString('fr-FR')} nuits)`);
+  console.log(`[import] ${daily.size.toLocaleString('fr-FR')} agrégats source×jour `
+    + `fusionnés en ${nbJournaliers.toLocaleString('fr-FR')} valeurs`);
 
   if (!rows.length) {
     console.log('[import] rien à importer.');
