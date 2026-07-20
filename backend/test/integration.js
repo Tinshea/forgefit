@@ -8,15 +8,37 @@
 // et on isole les données créées par le test derrière des identifiants
 // uniques. Un test qui n'est vert que sur une base vierge ne vaut rien.
 
+import crypto from 'node:crypto';
+
 const BASE = process.env.API_URL ?? 'http://127.0.0.1:3000';
+
+/**
+ * Secret de webhook de l'instance visée.
+ *
+ * Une instance de production en définit un et refuse toute charge non
+ * signée. Sans en tenir compte, la suite échouait sur tous les webhooks
+ * dès qu'on la lançait ailleurs qu'en développement — quatorze faux
+ * négatifs qui masqueraient de vrais problèmes.
+ *
+ *   WEBHOOK_SECRET=... npm run test:e2e
+ */
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? '';
 const RUN = `e2e-${Date.now()}`;
 let pass = 0;
 let fail = 0;
 
 const j = async (path, opts) => {
-  const res = await fetch(BASE + path, {
-    headers: { 'Content-Type': 'application/json' }, ...opts,
-  });
+  const headers = { 'Content-Type': 'application/json', ...opts?.headers };
+
+  // Signature HMAC du corps brut, quand l'instance l'exige.
+  if (WEBHOOK_SECRET && path.startsWith('/api/health-sync') && opts?.method === 'POST') {
+    headers['X-ForgeFit-Signature'] = crypto
+      .createHmac('sha256', WEBHOOK_SECRET)
+      .update(opts.body ?? '')
+      .digest('hex');
+  }
+
+  const res = await fetch(BASE + path, { ...opts, headers });
   const text = await res.text();
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
@@ -392,18 +414,25 @@ section('CORS (écritures depuis le navigateur)');
     body: JSON.stringify({ title: `${RUN}-cors` }),
   });
 
-  const dev = await postFrom('http://localhost:5173');
-  check('écriture autorisée depuis le serveur de dev Vite', dev.status === 201, `${dev.status}`);
-
-  const prod = await postFrom('http://localhost:8080');
-  check('écriture autorisée depuis l’origine de production', prod.status === 201, `${prod.status}`);
-
+  // Une origine étrangère est refusée, et le refus ÉNUMÈRE les origines
+  // acceptées. On s'en sert pour tester la configuration réelle de
+  // l'instance plutôt que des ports codés en dur : le développement
+  // autorise 5173, la production non — et les deux sont corrects.
   const evil = await postFrom('https://evil.example.com');
   const evilBody = await evil.json().catch(() => null);
   check('origine étrangère refusée', evil.status === 403, `${evil.status}`);
   check('refus en 403 explicite, pas un 500 opaque',
     typeof evilBody?.error === 'string' && Array.isArray(evilBody?.details?.allowed),
     JSON.stringify(evilBody)?.slice(0, 140));
+
+  const allowed = evilBody?.details?.allowed ?? [];
+  if (allowed.length) {
+    const legit = await postFrom(allowed[0]);
+    check(`écriture autorisée depuis l’origine configurée (${allowed[0]})`,
+      legit.status === 201, `${legit.status}`);
+  } else {
+    check('au moins une origine configurée', false, 'aucune origine autorisée');
+  }
 
   const noOrigin = await postFrom(null);
   check('requête sans Origin acceptée (webhook, curl)', noOrigin.status === 201, `${noOrigin.status}`);
