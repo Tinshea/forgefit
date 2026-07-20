@@ -72,6 +72,30 @@ const CANONICAL_TYPES = new Set([
   'bmi', 'height', 'waist',
 ]);
 
+/**
+ * Métriques qu'Apple exprime en FRACTION malgré une unité « % ».
+ *
+ * HealthKit stocke les pourcentages entre 0 et 1 : un taux de masse
+ * grasse de 17,5 % arrive en `0.175`, une saturation de 98 % en `0.98`.
+ * Repris tel quel, un taux de masse grasse de 0,175 rendrait la masse
+ * maigre déduite quasi égale au poids total — et toute la dépense
+ * énergétique avec.
+ *
+ * Le seuil est sûr : aucune de ces grandeurs n'est physiologiquement
+ * inférieure à 1 %. Une valeur ≤ 1 est donc forcément une fraction.
+ */
+const FRACTION_TYPES = new Set(['body_fat', 'spo2', 'body_water']);
+
+export function normalizePercent(type, value) {
+  if (!FRACTION_TYPES.has(type)) return value;
+  // `Number(null)` vaut 0 : sans cette garde, une valeur absente
+  // ressortirait en 0 % au lieu de rester absente.
+  if (value === null || value === undefined || value === '') return value;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return n > 0 && n <= 1 ? Math.round(n * 1000) / 10 : n;
+}
+
 export function canonicalType(raw) {
   if (!raw) return 'unknown';
   const key = String(raw);
@@ -96,7 +120,7 @@ function adaptAppleHealth(payload) {
       const recordedAt = sample.date ?? sample.startDate ?? sample.timestamp;
       // Le sommeil arrive en phases, pas en scalaire.
       const value = sample.qty !== undefined
-        ? { value: Number(sample.qty) }
+        ? { value: normalizePercent(metricType, Number(sample.qty)) }
         : sample;
       out.push(metric({
         metricType,

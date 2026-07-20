@@ -55,8 +55,15 @@ if ($Simulation) { $options += '--dry-run' }
 if ($Depuis) { $options += @('--since', $Depuis) }
 
 Write-Host "`nImport..." -ForegroundColor Cyan
-docker exec $Conteneur npm run import:health -- @options
+
+# npm écrit ses avis (« npm notice : nouvelle version disponible ») sur
+# la sortie d'erreur. PowerShell les remonte en NativeCommandError et
+# ferait échouer un import parfaitement réussi : on fusionne les deux
+# flux et on ne juge que le code de retour.
+$ErrorActionPreference = 'Continue'
+docker exec $Conteneur npm run import:health -- @options 2>&1 | ForEach-Object { "$_" }
 $code = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
 
 # Le fichier peut peser plusieurs centaines de Mo : on ne le laisse pas
 # occuper la couche du conteneur.

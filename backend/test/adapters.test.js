@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizePayload, detectSource, canonicalType } from '../src/services/adapters.js';
+import {
+  normalizePayload, detectSource, canonicalType, normalizePercent,
+} from '../src/services/adapters.js';
 import { computeReadiness } from '../src/services/scoring.js';
 
 test('canonicalType: vocabulaire HealthKit', () => {
@@ -12,6 +14,45 @@ test('canonicalType: vocabulaire HealthKit', () => {
   assert.equal(canonicalType('hydration'), 'hydration');
   // Type inconnu conserve : le modele JSONB doit l'accepter.
   assert.equal(canonicalType('glycemie_capteur_x'), 'glycemie_capteur_x');
+});
+
+test('normalizePercent: Apple exprime les pourcentages en fraction', () => {
+  // Regression sur donnees REELLES : un export Apple donnait un taux de
+  // masse grasse de 0.175 pour 17,5 %. Repris tel quel, la masse maigre
+  // deduite valait 99,8 % du poids — et la depense energetique avec.
+  assert.equal(normalizePercent('body_fat', 0.175), 17.5);
+  assert.equal(normalizePercent('spo2', 0.98), 98);
+  assert.equal(normalizePercent('body_water', 0.582), 58.2);
+
+  // Deja en pourcentage : ne pas retoucher.
+  assert.equal(normalizePercent('body_fat', 17.5), 17.5);
+  assert.equal(normalizePercent('spo2', 98), 98);
+
+  // Le seuil est sur : aucune de ces grandeurs n'est sous 1 %.
+  assert.equal(normalizePercent('body_fat', 1), 100);
+
+  // Les autres types ne sont pas concernes.
+  assert.equal(normalizePercent('weight', 0.5), 0.5);
+  assert.equal(normalizePercent('hrv', 0.9), 0.9);
+
+  // Entrees inexploitables : laissees telles quelles.
+  assert.equal(normalizePercent('body_fat', null), null);
+  assert.ok(Number.isNaN(normalizePercent('body_fat', NaN)));
+});
+
+test('normalizePayload: conversion appliquee au webhook Apple Health', () => {
+  const { metrics } = normalizePayload({
+    data: {
+      metrics: [{
+        name: 'HKQuantityTypeIdentifierBodyFatPercentage',
+        units: '%',
+        data: [{ date: '2026-07-19T07:00:00Z', qty: 0.151, uuid: 'bf-1' }],
+      }],
+    },
+  }, 'apple_health');
+
+  assert.equal(metrics[0].metricType, 'body_fat');
+  assert.deepEqual(metrics[0].value, { value: 15.1 });
 });
 
 test('detectSource: reconnaissance par la forme', () => {

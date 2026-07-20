@@ -26,7 +26,7 @@ import readline from 'node:readline';
 import crypto from 'node:crypto';
 import { pool, waitForDatabase } from '../db.js';
 import { config } from '../config.js';
-import { canonicalType } from '../services/adapters.js';
+import { canonicalType, normalizePercent } from '../services/adapters.js';
 
 const args = process.argv.slice(2);
 const flag = (f) => args.includes(f);
@@ -118,7 +118,8 @@ async function main() {
     if (!TRACKED.has(type)) { stats.skipped += 1; continue; }
 
     const rawValue = attr(line, 'value');
-    const num = Number(rawValue);
+    // Apple exprime les pourcentages en fraction : 0.175 vaut 17,5 %.
+    const num = normalizePercent(type, Number(rawValue));
     if (!Number.isFinite(num)) { stats.skipped += 1; continue; }
 
     const startDate = attr(line, 'startDate');
