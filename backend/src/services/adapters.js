@@ -41,6 +41,11 @@ const APPLE_TYPE_MAP = {
   HKQuantityTypeIdentifierBodyMassIndex: 'bmi',
   HKQuantityTypeIdentifierHeight: 'height',
   HKQuantityTypeIdentifierWaistCircumference: 'waist',
+  HKQuantityTypeIdentifierAppleExerciseTime: 'exercise_minutes',
+  HKQuantityTypeIdentifierDistanceWalkingRunning: 'distance',
+  HKQuantityTypeIdentifierRespiratoryRate: 'respiratory_rate',
+  HKQuantityTypeIdentifierFlightsClimbed: 'flights',
+  HKQuantityTypeIdentifierHeartRate: 'heart_rate',
   HKQuantityTypeIdentifierVO2Max: 'vo2max',
   HKQuantityTypeIdentifierOxygenSaturation: 'spo2',
   HKCategoryTypeIdentifierSleepAnalysis: 'sleep',
@@ -70,7 +75,26 @@ const CANONICAL_TYPES = new Set([
   // Composition corporelle (balance à impédance)
   'lean_mass', 'muscle_mass', 'bone_mass', 'body_water', 'visceral_fat',
   'bmi', 'height', 'waist',
+  // Activité
+  'exercise_minutes', 'distance', 'respiratory_rate', 'flights', 'heart_rate',
 ]);
+
+/**
+ * Métriques qui S'ADDITIONNENT sur une journée.
+ *
+ * Deux mille pas le matin et trois mille l'après-midi font cinq mille
+ * pas ; deux mesures de VFC à 60 et 80 ms ne font pas 140. La
+ * distinction décide de l'agrégation à l'import comme à la lecture —
+ * d'où sa place ici, dans le vocabulaire partagé, plutôt que recopiée
+ * dans chaque module qui en a besoin.
+ */
+export const CUMULATIVE_TYPES = new Set([
+  'steps', 'calories_active', 'calories_basal', 'hydration',
+  'exercise_minutes', 'distance', 'flights',
+]);
+
+/** Grandeurs instantanées : on en fait une moyenne, jamais une somme. */
+export const AVERAGED_TYPES = new Set(['respiratory_rate', 'heart_rate']);
 
 /**
  * Métriques qu'Apple exprime en FRACTION malgré une unité « % ».

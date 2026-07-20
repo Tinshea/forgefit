@@ -13,14 +13,61 @@ import { shortDay } from '../lib/format.js';
  * qui rend n'importe quelle comparaison visuelle trompeuse.
  */
 
-const METRICS = [
-  { key: 'sleep', label: 'Sommeil', unit: 'h', decimals: 1, goodHigh: true },
-  { key: 'hrv', label: 'Variabilité cardiaque', unit: 'ms', decimals: 0, goodHigh: true },
-  { key: 'resting_hr', label: 'FC de repos', unit: 'bpm', decimals: 0, goodHigh: false },
-  { key: 'steps', label: 'Pas', unit: '', decimals: 0, goodHigh: true },
-  { key: 'calories_active', label: 'Calories actives', unit: 'kcal', decimals: 0, goodHigh: true },
-  { key: 'weight', label: 'Poids', unit: 'kg', decimals: 1, goodHigh: null },
+/**
+ * Les métriques sont groupées par QUESTION posée, pas par capteur.
+ *
+ * « Est-ce que je récupère ? » se lit sur le sommeil, la VFC et la FC de
+ * repos ensemble ; le poids seul ne veut rien dire sans la masse maigre.
+ * Un mur de seize graphiques par ordre alphabétique obligerait à faire
+ * ce regroupement de tête à chaque consultation.
+ *
+ * `goodHigh` dit dans quel sens lire une variation : +8 % de VFC est bon,
+ * +8 % de FC de repos ne l'est pas. `null` = neutre, aucun jugement.
+ */
+const GROUPS = [
+  {
+    title: 'Récupération',
+    hint: 'Ce que ton corps répare pendant la nuit.',
+    metrics: [
+      { key: 'sleep', label: 'Sommeil', unit: 'h', decimals: 1, goodHigh: true },
+      { key: 'hrv', label: 'Variabilité cardiaque', unit: 'ms', decimals: 0, goodHigh: true },
+      { key: 'resting_hr', label: 'FC de repos', unit: 'bpm', decimals: 0, goodHigh: false },
+      { key: 'respiratory_rate', label: 'Fréquence respiratoire', unit: '/min', decimals: 1, goodHigh: null },
+    ],
+  },
+  {
+    title: 'Activité',
+    hint: 'Ce que tu as dépensé, mouvement par mouvement.',
+    metrics: [
+      { key: 'steps', label: 'Pas', unit: '', decimals: 0, goodHigh: true },
+      { key: 'exercise_minutes', label: 'Minutes d’exercice', unit: 'min', decimals: 0, goodHigh: true },
+      { key: 'calories_active', label: 'Calories actives', unit: 'kcal', decimals: 0, goodHigh: true },
+      { key: 'distance', label: 'Distance', unit: 'km', decimals: 1, goodHigh: true },
+      { key: 'flights', label: 'Étages montés', unit: '', decimals: 0, goodHigh: true },
+    ],
+  },
+  {
+    title: 'Composition corporelle',
+    hint: 'Le poids seul ment : c’est la répartition qui compte.',
+    metrics: [
+      { key: 'weight', label: 'Poids', unit: 'kg', decimals: 1, goodHigh: null },
+      { key: 'body_fat', label: 'Masse grasse', unit: '%', decimals: 1, goodHigh: false },
+      { key: 'lean_mass', label: 'Masse maigre', unit: 'kg', decimals: 1, goodHigh: true },
+      { key: 'bmi', label: 'IMC', unit: '', decimals: 1, goodHigh: null },
+    ],
+  },
+  {
+    title: 'Métabolisme & endurance',
+    hint: 'Ta dépense de fond et ta capacité cardio.',
+    metrics: [
+      { key: 'calories_basal', label: 'Métabolisme de base', unit: 'kcal', decimals: 0, goodHigh: null },
+      { key: 'vo2max', label: 'VO₂ max', unit: 'ml/kg/min', decimals: 1, goodHigh: true },
+      { key: 'hydration', label: 'Hydratation', unit: 'mL', decimals: 0, goodHigh: true },
+    ],
+  },
 ];
+
+const METRICS = GROUPS.flatMap((g) => g.metrics);
 
 const RANGES = [
   { days: 7, label: '7 j' },
@@ -188,17 +235,59 @@ export default function HealthPage() {
 
       {!loading && hasData && (
         <>
-          <div className="grid grid-2">
-            {METRICS.map((m) => (
-              <MetricChart
-                key={m.key} meta={m}
-                series={seriesOf(m.key)} summary={summaryOf(m.key)}
-              />
-            ))}
-          </div>
+          {GROUPS.map((g) => {
+            // Une métrique jamais mesurée ne mérite pas un cadre vide :
+            // seize « Aucune donnée » noieraient les trois qui comptent.
+            const dispo = g.metrics.filter((m) => seriesOf(m.key)?.points?.length);
+            if (!dispo.length) return null;
+            return (
+              <section key={g.title}>
+                <div style={{ margin: '4px 2px 10px' }}>
+                  <h2 className="card-title" style={{ margin: 0 }}>{g.title}</h2>
+                  <p className="card-sub" style={{ margin: 0 }}>{g.hint}</p>
+                </div>
+                <div className="grid grid-2">
+                  {dispo.map((m) => (
+                    <MetricChart
+                      key={m.key} meta={m}
+                      series={seriesOf(m.key)} summary={summaryOf(m.key)}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+          <MetriquesAbsentes manquantes={
+            METRICS.filter((m) => !seriesOf(m.key)?.points?.length)
+          } jours={days} />
           <AppleWatchGuide collapsed />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Ce que l'app sait suivre mais n'a pas reçu.
+ *
+ * Sans cette liste, une métrique absente est indistinguable d'une
+ * métrique non gérée : on ne saurait pas s'il faut brancher un capteur
+ * ou si l'app ne sait tout simplement pas la lire.
+ */
+function MetriquesAbsentes({ manquantes, jours }) {
+  if (!manquantes.length) return null;
+  return (
+    <div className="card">
+      <h3 className="card-title">Non reçu sur {jours} jours</h3>
+      <p className="card-sub" style={{ marginTop: 0 }}>
+        Ces mesures sont gérées par l’app mais absentes de tes données sur
+        la période — élargis la fenêtre, ou vérifie que le capteur les envoie.
+      </p>
+      <div className="legend">
+        {manquantes.map((m) => (
+          <span className="pill" key={m.key}>{m.label}</span>
+        ))}
+      </div>
     </div>
   );
 }

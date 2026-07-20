@@ -2,9 +2,11 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { query } from '../db.js';
 import { config } from '../config.js';
-import { asyncHandler, badRequest, unauthorized, userOf } from '../lib/http.js';
+import {
+  asyncHandler, badRequest, notFound, unauthorized, userOf,
+} from '../lib/http.js';
 import { drainHealthEvents } from '../services/health-worker.js';
-import { canonicalType } from '../services/adapters.js';
+import { canonicalType, CUMULATIVE_TYPES } from '../services/adapters.js';
 import { hydrationTarget } from '../services/anthropometry.js';
 
 export const healthRouter = Router();
@@ -135,7 +137,11 @@ healthRouter.get('/health/metrics', asyncHandler(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 100, 500);
 
   const { rows } = await query(
-    `SELECT id, metric_type, recorded_at, source, unit, value, magnitude, meta
+    // `external_id` est exposé : c'est l'identifiant d'origine du
+    // capteur, seul moyen de rapprocher une mesure de sa source réelle
+    // (et de retrouver celles qu'on a soi-même envoyées).
+    `SELECT id, metric_type, recorded_at, source, external_id,
+            unit, value, magnitude, meta
        FROM health_metrics
       WHERE user_id = $1
         AND ($2::text IS NULL OR metric_type = $2)
@@ -150,6 +156,28 @@ healthRouter.get('/health/metrics', asyncHandler(async (req, res) => {
 }));
 
 /**
+ * DELETE /api/health/metrics/:id — retire UNE mesure.
+ *
+ * Une balance qui pèse un sac de courses, un capteur qui déraille : la
+ * mesure fausse reste sinon dans les moyennes et écrase l'échelle des
+ * graphiques pour toujours. C'est aussi ce qui permet à la suite de
+ * tests de ne rien laisser derrière elle.
+ *
+ * Volontairement UNITAIRE, jamais par lot. Tant que l'API n'authentifie
+ * personne (l'en-tête X-User-Id n'est pas vérifié), une route capable
+ * d'effacer un historique entier en un appel serait une arme laissée
+ * chargée : quiconque atteint l'API pourrait vider huit ans de données.
+ */
+healthRouter.delete('/health/metrics/:id', asyncHandler(async (req, res) => {
+  const { rowCount } = await query(
+    'DELETE FROM health_metrics WHERE id = $1 AND user_id = $2',
+    [req.params.id, userOf(req)],
+  );
+  if (!rowCount) throw notFound('Mesure introuvable');
+  res.json({ deleted: 1 });
+}));
+
+/**
  * GET /api/health/series?types=sleep,hrv&days=30
  *
  * Séries journalières pour les courbes de suivi. L'agrégation se fait
@@ -159,15 +187,31 @@ healthRouter.get('/health/metrics', asyncHandler(async (req, res) => {
  * `metric_type` reste une chaîne libre — une métrique inconnue de l'app
  * est interrogeable sans modification de code.
  */
+/**
+ * Plafond de types par requête.
+ *
+ * Il borne le coût d'une seule requête, pas le vocabulaire de l'app : un
+ * export Santé complet fournit une quinzaine de métriques et la page de
+ * suivi les demande toutes d'un coup. Un plafond trop bas les tronquait
+ * SANS ERREUR — la moitié des graphiques disparaissait de la page sans
+ * que rien ne le signale. Dépasser la limite est désormais une erreur
+ * franche plutôt qu'une perte muette.
+ */
+const MAX_TYPES = 32;
+
 healthRouter.get('/health/series', asyncHandler(async (req, res) => {
   const days = Math.min(Number(req.query.days) || 30, 365);
-  const types = String(req.query.types ?? 'sleep,hrv,resting_hr,steps,weight')
-    .split(',')
-    .map((t) => canonicalType(t.trim()))
-    .filter(Boolean)
-    .slice(0, 10);
+  const types = [...new Set(
+    String(req.query.types ?? 'sleep,hrv,resting_hr,steps,weight')
+      .split(',')
+      .map((t) => canonicalType(t.trim()))
+      .filter(Boolean),
+  )];
 
   if (!types.length) throw badRequest('Au moins un type est requis');
+  if (types.length > MAX_TYPES) {
+    throw badRequest(`Trop de types demandés (${types.length}, maximum ${MAX_TYPES})`);
+  }
 
   const { rows } = await query(
     `SELECT metric_type,
@@ -188,9 +232,9 @@ healthRouter.get('/health/series', asyncHandler(async (req, res) => {
     [userOf(req), types, String(days)],
   );
 
-  // Certaines métriques se lisent en cumul (pas, calories, hydratation),
-  // les autres en moyenne (VFC, FC de repos, poids).
-  const CUMULATIVE = new Set(['steps', 'calories_active', 'calories_basal', 'hydration']);
+  // Cumul (pas, calories, distance…) ou moyenne (VFC, poids…) : la liste
+  // vit dans adapters.js, avec le reste du vocabulaire métrique.
+  const CUMULATIVE = CUMULATIVE_TYPES;
 
   const series = {};
   for (const r of rows) {
@@ -295,10 +339,13 @@ healthRouter.post('/health/hydration', asyncHandler(async (req, res) => {
     throw badRequest('amount_ml hors bornes (max 5000 ml)');
   }
 
-  await query(
+  // L'identifiant est renvoyé : sans lui, un ajout fait par erreur ne
+  // peut plus être visé individuellement (cf. DELETE /health/metrics/:id).
+  const insere = await query(
     `INSERT INTO health_metrics
        (user_id, metric_type, recorded_at, source, unit, value)
-     VALUES ($1, 'hydration', now(), 'manual', 'ml', $2::jsonb)`,
+     VALUES ($1, 'hydration', now(), 'manual', 'ml', $2::jsonb)
+     RETURNING id`,
     [userOf(req), JSON.stringify({ value: amount })],
   );
 
@@ -314,6 +361,7 @@ healthRouter.post('/health/hydration', asyncHandler(async (req, res) => {
   const totalMl = Number(total.rows[0].total_ml);
   const goal = await hydrationGoalFor(userOf(req));
   res.status(201).json({
+    id: insere.rows[0].id,
     total_ml: totalMl,
     goal_ml: goal.ml,
     goal_basis: goal.basis,
