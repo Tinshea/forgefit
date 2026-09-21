@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
+import MetabolismMethod from '../components/MetabolismMethod.jsx';
 
 /**
  * Profil : identité, morphologie, objectifs.
@@ -55,6 +56,9 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
+  // Le choix de formule vit dans le profil NUTRITIONNEL, pas dans le
+  // profil corporel : il est chargé à part et rechargé quand il change.
+  const [nutrition, setNutrition] = useState(null);
 
   const hydrate = (d) => {
     setData(d);
@@ -70,8 +74,13 @@ export default function ProfilePage() {
     });
   };
 
+  const loadNutrition = () => api.nutritionProfile()
+    .then(setNutrition)
+    .catch(() => {});
+
   useEffect(() => {
     api.profile().then(hydrate).catch((e) => setError(e.message));
+    loadNutrition();
   }, []);
 
   const set = (k) => (e) => {
@@ -103,6 +112,7 @@ export default function ProfilePage() {
   if (!data) return <p className="empty">Chargement du profil…</p>;
 
   const { morphology: m, derived: d, gaps, options } = data;
+  const check = data.activity_check;
 
   return (
     <div className="grid">
@@ -224,6 +234,25 @@ export default function ProfilePage() {
           ))}
         </div>
 
+        {/* Le multiplicateur d'activité est l'entrée la plus lourde du
+            calcul de dépense, et la seule qu'on choisit une fois sans
+            jamais la revoir. On la confronte aux séances enregistrées,
+            ici, là où elle se règle. */}
+        {check && (
+          <p style={{
+            fontSize: 12, marginTop: 10, lineHeight: 1.6,
+            color: check.ok ? 'var(--text-muted)' : 'var(--warning)',
+          }}>
+            {check.ok ? '✓ ' : '▲ '}{check.note}
+            {!check.ok && check.kcal_hint != null && (
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {' '}Soit environ {Math.abs(check.kcal_hint)} kcal par jour d’écart sur
+                ton objectif.
+              </span>
+            )}
+          </p>
+        )}
+
         <button type="button" className="btn-primary" onClick={save} disabled={saving}>
           {saving ? 'Enregistrement…' : saved ? 'Enregistré ✓' : 'Enregistrer'}
         </button>
@@ -259,6 +288,21 @@ export default function ProfilePage() {
         )}
       </div>
 
+      {nutrition && (
+        <MetabolismMethod
+          profile={nutrition}
+          onSaved={async () => {
+            // Les deux profils sont rechargés : changer de formule
+            // déplace le métabolisme de base, donc les indices dérivés
+            // affichés juste au-dessus.
+            await Promise.all([
+              api.profile().then(hydrate).catch(() => {}),
+              loadNutrition(),
+            ]);
+          }}
+        />
+      )}
+
       {data.nutrition_targets && (
         <div className="card">
           <h2 className="card-title">Objectifs journaliers</h2>
@@ -277,6 +321,80 @@ export default function ProfilePage() {
           }}>
             {(data.nutrition_method ?? []).map((s, i) => <li key={i}>{s}</li>)}
           </ol>
+        </div>
+      )}
+
+      <ExportCard />
+    </div>
+  );
+}
+
+/**
+ * Export des données.
+ *
+ * Tout vit dans un Postgres qu'on héberge soi-même — ce qui ne suffit
+ * pas : des données qu'on ne peut pas SORTIR sont des données captives,
+ * et le seul moyen de les relire était d'ouvrir psql.
+ */
+function ExportCard() {
+  const [manifest, setManifest] = useState(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open || manifest) return;
+    api.exportManifest().then(setManifest).catch(() => {});
+  }, [open, manifest]);
+
+  return (
+    <div className="card">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10 }}
+      >
+        <div style={{ flex: 1, textAlign: 'left' }}>
+          <h2 className="card-title">Exporter mes données</h2>
+          <p className="card-sub" style={{ margin: 0 }}>
+            Séances, journal alimentaire, mesures de santé — en CSV ou en JSON
+          </p>
+        </div>
+        <span style={{ color: 'var(--text-muted)' }}>{open ? '−' : '+'}</span>
+      </button>
+
+      {open && manifest && (
+        <div style={{ marginTop: 14 }}>
+          <div className="stat-row">
+            <div className="stat">
+              <div className="stat-value">{manifest.counts.sessions}</div>
+              <div className="stat-label">séances</div>
+            </div>
+            <div className="stat">
+              <div className="stat-value">{manifest.counts.food_entries}</div>
+              <div className="stat-label">lignes de repas</div>
+            </div>
+            <div className="stat">
+              <div className="stat-value">{manifest.counts.health_metrics}</div>
+              <div className="stat-label">mesures santé</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gap: 6, marginTop: 14 }}>
+            {manifest.datasets.map((ds) => (
+              <a
+                key={ds.key} href={ds.path} className="exercise-item"
+                style={{ textDecoration: 'none', minHeight: 44 }}
+              >
+                <span style={{ flex: 1, textAlign: 'left', fontSize: 13 }}>{ds.label}</span>
+                <span className="pill">{ds.format}</span>
+              </a>
+            ))}
+          </div>
+
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.5 }}>
+            {manifest.note} Aucun secret d’accès n’est inclus : le lien d’abonnement
+            au calendrier reste en dehors de l’export.
+          </p>
         </div>
       )}
     </div>

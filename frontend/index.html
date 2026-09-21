@@ -5,7 +5,32 @@
     <!-- viewport-fit=cover : l'app va jusqu'aux bords sur mobile, les
          zones sures sont gerees en CSS via env(safe-area-inset-*). -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0f19" />
+    <!-- La barre d'etat prend la couleur du fond : sur un telephone,
+         une barre d'une autre teinte trahit qu'on est dans un
+         navigateur et casse l'illusion de l'application. -->
+    <meta name="theme-color" content="#0a0a0b" />
+
+    <!-- Plein ecran une fois installee. `standalone` retire la barre
+         d'adresse et les boutons du navigateur ; l'application occupe
+         alors tout l'ecran, comme n'importe quelle autre. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+
+    <!-- iOS ignore le manifeste pour le mode plein ecran : il lui faut
+         ces deux balises, heritees de l'epoque ou il etait seul a
+         savoir installer une application web. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ForgeFit" />
+
+    <!-- Aucun zoom pince : l'interface est deja dimensionnee pour le
+         doigt, et un zoom accidentel en pleine saisie de serie est une
+         nuisance. `user-scalable=no` seul serait hostile ; ici le texte
+         reste redimensionnable par les reglages systeme. -->
+    <meta name="format-detection" content="telephone=no" />
+
     <title>ForgeFit</title>
   </head>
   <body>

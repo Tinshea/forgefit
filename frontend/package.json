@@ -5,19 +5,24 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/precompress.mjs",
     "preview": "vite preview",
     "generate:anatomy": "node scripts/generate-anatomy.mjs",
     "check:anatomy": "node scripts/check-anatomy.mjs",
     "check:nav": "node scripts/check-navigation.mjs",
-    "check": "npm run check:anatomy && npm run check:nav"
+    "check": "npm run check:anatomy && npm run check:nav && npm run check:map",
+    "check:screens": "node scripts/check-screens.mjs",
+    "check:map": "node scripts/check-mercator.mjs",
+    "generate:icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
+    "preact": "^10.29.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@phosphor-icons/core": "^2.1.1",
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.2"
   }

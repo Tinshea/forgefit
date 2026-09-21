@@ -313,11 +313,19 @@ async function hydrationGoalFor(userId) {
        (SELECT magnitude FROM health_metrics
          WHERE user_id = $1 AND metric_type = 'weight' AND magnitude IS NOT NULL
          ORDER BY recorded_at DESC LIMIT 1) AS measured_weight,
-       (SELECT COALESCE(SUM(ws.duration_s), 0) / 60.0
-          FROM workout_sets ws
-          JOIN workout_sessions s ON s.id = ws.session_id
+       -- Minutes d'entraînement du jour, sur la DURÉE DE SÉANCE.
+       -- Compter la somme des durées de séries ramenait une séance de
+       -- musculation de 75 min à zéro : seules les séries chronométrées
+       -- (étirements, gainage) en portent une. La même expression est
+       -- utilisée par trainingMinutesToday (body-profile.js) : deux
+       -- définitions produiraient deux objectifs d'hydratation
+       -- différents dans la même application, et c'est arrivé.
+       (SELECT COALESCE(SUM(
+                 EXTRACT(EPOCH FROM (COALESCE(s.ended_at, now()) - s.started_at)) / 60
+               ), 0)
+          FROM workout_sessions s
          WHERE s.user_id = $1
-           AND ws.completed_at >= date_trunc('day', now())) AS training_minutes`,
+           AND s.started_at >= date_trunc('day', now())) AS training_minutes`,
     [userId],
   );
 

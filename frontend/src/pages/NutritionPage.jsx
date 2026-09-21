@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
+import MealSuggestions from '../components/MealSuggestions.jsx';
+import TrainingNutrition from '../components/TrainingNutrition.jsx';
 import FoodCard from '../components/FoodCard.jsx';
 import { round1 } from '../lib/format.js';
 
@@ -229,6 +231,90 @@ function FoodPicker({ meal, onLogged, onError }) {
   );
 }
 
+/**
+ * Confrontation des cibles aux repères publiés.
+ *
+ * Des CONSTATS, pas des corrections : les cibles restent celles de
+ * l'utilisateur. Les ajuster en douce rendrait le calcul invérifiable,
+ * et c'est précisément la vérifiabilité qui distingue un repère d'une
+ * opinion.
+ */
+function TargetReview({ review }) {
+  const [open, setOpen] = useState(false);
+  if (!review?.checks?.length) return null;
+
+  const failing = review.checks.filter((c) => !c.ok);
+
+  return (
+    <div className="card">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 10 }}
+      >
+        <div style={{ flex: 1, textAlign: 'left' }}>
+          <h2 className="card-title">Tes cibles face à la littérature</h2>
+          <p className="card-sub" style={{ margin: 0 }}>
+            {failing.length
+              ? `${failing.length} écart${failing.length > 1 ? 's' : ''} avec les repères publiés`
+              : 'Toutes les cibles sont dans les fourchettes publiées'}
+          </p>
+        </div>
+        <span style={{
+          color: failing.length ? 'var(--warning)' : 'var(--good)', fontSize: 18,
+        }}>
+          {failing.length ? '▲' : '✓'}
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 14 }}>
+          {review.checks.map((c) => (
+            <div key={c.key} style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                <span style={{ color: c.ok ? 'var(--good)' : 'var(--warning)' }}>
+                  {c.ok ? '✓' : '▲'}
+                </span>
+                <strong style={{ fontSize: 13, flex: 1 }}>{c.label}</strong>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{c.value}</span>
+              </div>
+              <p style={{
+                fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0 20px',
+                lineHeight: 1.6,
+              }}>
+                {c.note}
+              </p>
+            </div>
+          ))}
+
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--grid)' }}>
+            <div className="stat-label" style={{ marginBottom: 8 }}>Sources</div>
+            <ul style={{
+              paddingLeft: 18, margin: 0, fontSize: 11,
+              color: 'var(--text-muted)', lineHeight: 1.6,
+            }}>
+              {review.sources.map((src) => (
+                <li key={src.key} style={{ marginBottom: 6 }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{src.claim}</span>
+                  <br />
+                  {src.url
+                    ? <a href={src.url} target="_blank" rel="noreferrer">{src.citation}</a>
+                    : src.citation}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12, marginBottom: 0 }}>
+            {review.disclaimer}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function NutritionPage() {
   const [date, setDate] = useState(todayISO());
   const [day, setDay] = useState(null);
@@ -335,6 +421,15 @@ export default function NutritionPage() {
         ))}
       </div>
 
+      <TrainingNutrition
+        training={day?.training}
+        breakdown={day?.breakdown}
+        onChanged={load}
+        onError={setError}
+      />
+
+      <TargetReview review={day?.review} />
+
       {MEALS.map((meal) => {
         const entries = (day?.entries ?? []).filter((e) => e.meal === meal.key);
         const totals = (day?.by_meal ?? []).find((m) => m.meal === meal.key);
@@ -382,11 +477,24 @@ export default function NutritionPage() {
             )}
 
             {isOpen && (
-              <FoodPicker
-                meal={meal.key}
-                onLogged={() => { load(); }}
-                onError={setError}
-              />
+              <>
+                {/* Les suggestions d'abord : c'est la question « qu'est-ce
+                    que je mange » qui amène ici, pas « où est le thon ». */}
+                <MealSuggestions
+                  meal={meal.key}
+                  date={day?.date}
+                  onLogged={() => { load(); }}
+                  onError={setError}
+                />
+                <div className="stat-label" style={{ margin: '16px 0 4px' }}>
+                  Ou chercher un aliment
+                </div>
+                <FoodPicker
+                  meal={meal.key}
+                  onLogged={() => { load(); }}
+                  onError={setError}
+                />
+              </>
             )}
           </div>
         );

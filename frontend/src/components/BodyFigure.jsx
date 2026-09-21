@@ -24,6 +24,10 @@ export default function BodyFigure({
   interactive = false,
   maxWidth = 300,
   ariaLabel,
+  // Allumage échelonné des régions actives. Réservé aux fiches : sur la
+  // heatmap, où TOUTES les régions portent une valeur, l'échelonnement
+  // ferait clignoter la figure entière à chaque rendu.
+  animate = false,
 }) {
   // Identifiants de dégradé uniques par instance : deux figures sur la
   // même page partageraient sinon leurs `defs`.
@@ -34,6 +38,24 @@ export default function BodyFigure({
   // canevas d'origine. Un cadre unique rognait la vue de dos à gauche.
   const box = VIEWBOX[view];
   const isHovered = (keys) => !!hoveredKeys && keys.some((k) => hoveredKeys.includes(k));
+
+  // Désigner un muscle BASCULE : sans écran tactile on survole et on
+  // relâche, mais un doigt ne se retire pas — sans second appui pour
+  // refermer, le détail resterait figé sur le premier muscle touché.
+  const select = (region) => onHover?.(isHovered(region.keys) ? null : region.keys);
+
+  // ┌─ LE SURVOL EST UNE NOTION DE SOURIS ──────────────────────────────┐
+  // │ Après un toucher, le navigateur émet un `mouseenter` de           │
+  // │ compatibilité. Il resélectionnait le muscle que l'appui venait    │
+  // │ de désélectionner : la bascule ne refermait jamais.               │
+  // │                                                                    │
+  // │ On passe donc par les événements de POINTEUR, qui disent leur     │
+  // │ nature, et on ignore le survol tactile — un doigt ne survole pas. │
+  // └────────────────────────────────────────────────────────────────────┘
+  const hoverProps = (region) => (interactive ? {
+    onPointerEnter: (e) => { if (e.pointerType !== 'touch') onHover?.(region.keys); },
+    onPointerLeave: (e) => { if (e.pointerType !== 'touch') onHover?.(null); },
+  } : null);
 
   return (
     <svg
@@ -58,26 +80,65 @@ export default function BodyFigure({
         {decor.map((d, i) => <path key={`d-${i}`} d={d} />)}
       </g>
 
+      {/* ┌─ 1 bis. LA FRANGE D'ATTEINTE ─────────────────────────────┐
+          │ Sur un téléphone, une région comme le biceps mesure 13 × 11 │
+          │ pixels : la pulpe d'un doigt en couvre quatre fois plus.    │
+          │                                                             │
+          │ On ne peut pas grossir un muscle sans mentir sur l'anatomie.│
+          │ On lui ajoute donc une BORDURE TRANSPARENTE épaisse, posée  │
+          │ SOUS la couche visible : le muscle lui-même reste           │
+          │ prioritaire, et seule la frange autour de lui devient       │
+          │ atteignable. Un doigt qui vise mal tombe sur un voisin      │
+          │ plausible au lieu de ne rien toucher du tout.               │
+          │                                                             │
+          │ `pointerEvents="stroke"` vise la bordure sans tenir compte  │
+          │ de sa peinture — c'est ce qui permet de la garder invisible.│
+          └─────────────────────────────────────────────────────────────┘ */}
+      {interactive && (
+        <g fill="none" stroke="transparent" strokeWidth="14"
+           strokeLinejoin="round" pointerEvents="stroke" aria-hidden="true">
+          {regions.map((region, i) => (
+            <path
+              key={`h-${i}`}
+              d={region.d}
+              style={{ cursor: 'pointer' }}
+              {...hoverProps(region)}
+              onClick={() => select(region)}
+            />
+          ))}
+        </g>
+      )}
+
       {/* 2. Muscles — porteurs de la donnée */}
       <g strokeLinejoin="round">
         {regions.map((region, i) => {
           const { fill, opacity = 1 } = paint(region.keys) ?? {};
           const hot = isHovered(region.keys);
+          // Seules les régions sollicitées s'animent, et le délai suit
+          // leur ordre dans le tracé — de haut en bas du corps.
+          const lit = animate && opacity > 0 && fill !== 'var(--surface-2)';
           return (
             <path
               key={`m-${i}`}
+              className={lit ? 'muscle-lit' : undefined}
               d={region.d}
               fill={fill}
               fillOpacity={opacity}
               stroke={hot ? 'var(--text-primary)' : 'var(--plane)'}
               strokeWidth={hot ? 4 : 1.5}
-              style={interactive
-                ? { cursor: 'pointer', transition: 'stroke 120ms ease' }
-                : undefined}
-              onMouseEnter={interactive ? () => onHover?.(region.keys) : undefined}
-              onMouseLeave={interactive ? () => onHover?.(null) : undefined}
+              style={{
+                ...(lit ? { animationDelay: `${Math.min(i, 14) * 22}ms` } : null),
+                ...(interactive
+                  ? { cursor: 'pointer', transition: 'stroke 120ms ease' }
+                  : null),
+              }}
+              {...hoverProps(region)}
               onFocus={interactive ? () => onHover?.(region.keys) : undefined}
               onBlur={interactive ? () => onHover?.(null) : undefined}
+              onClick={interactive ? () => select(region) : undefined}
+              onKeyDown={interactive ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(region); }
+              } : undefined}
               tabIndex={interactive ? 0 : undefined}
               role={interactive ? 'button' : undefined}
               aria-label={interactive

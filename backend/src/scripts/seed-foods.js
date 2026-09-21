@@ -5,7 +5,14 @@
 //   npm run seed:foods -- --check   (contrôle de cohérence seul)
 //
 // Chaque ligne porte : quantité de référence, kcal, lipides, glucides,
-// protéines, fibres, et PRIX. Le prix est ce qui distingue ce catalogue
+// protéines, fibres, et PRIX.
+//
+// Les fibres sont exprimées POUR LA QUANTITÉ DE RÉFÉRENCE, pas
+// systématiquement pour 100 g : une barre de céréales de 25 g porte ses
+// fibres pour 25 g. Valeurs manquantes complétées depuis la table de
+// composition CIQUAL (ANSES). Elles comptent : les fibres sont une
+// fraction des glucides, et les laisser à zéro surestimait l'énergie
+// disponible de ces aliments. Le prix est ce qui distingue ce catalogue
 // des bases publiques — c'est une donnée personnelle, liée aux magasins
 // où l'on fait ses courses.
 //
@@ -21,10 +28,10 @@ const FOODS = [
   // --- Féculents et céréales ---
   ['Torti blé complet', 100, 350, 2.3, 65, 13.4, 6, 0.202, 'feculents'],
   ['Spaghetti complètes', 100, 349, 2.3, 65, 13.4, 6, 0.202, 'feculents'],
-  ['Pâtes blanches cuites', 100, 158, 0.9, 31, 5, 0, 0.15, 'feculents'],
+  ['Pâtes blanches cuites', 100, 158, 0.9, 31, 5, 1.8, 0.15, 'feculents'],
   ['Riz blanc cuit', 100, 130, 0.3, 28, 2.7, 0.4, 0.15, 'feculents'],
   ['Riz complet cuit', 100, 123, 1, 23, 2.7, 1.8, 0.2, 'feculents'],
-  ['Couscous cuit', 100, 112, 0.2, 23, 3.8, 0, 0.2, 'feculents'],
+  ['Couscous cuit', 100, 112, 0.2, 23, 3.8, 1.4, 0.2, 'feculents'],
   ['Quinoa cuit', 100, 120, 1.9, 21, 4.4, 2.8, 0.8, 'feculents'],
   ['Pain complet', 100, 247, 3.4, 41, 13, 7, 0.3, 'feculents'],
   ['Pain de mie complet', 100, 236, 3.4, 37, 11, 7, null, 'feculents'],
@@ -33,7 +40,7 @@ const FOODS = [
   ['Patate douce cuite', 100, 90, 0.1, 21, 1.6, 3, 0.3, 'feculents'],
   ['Lentilles cuites', 100, 116, 0.4, 20, 9, 7.9, 0.4, 'feculents'],
   ['Pois chiches cuits', 100, 164, 2.6, 27, 8.9, 7.6, 0.4, 'feculents'],
-  ['Wrap tortilla', 60, 195, 5, 30, 6, 0, 0.4, 'feculents'],
+  ['Wrap tortilla', 60, 195, 5, 30, 6, 1.5, 0.4, 'feculents'],
   ['Galette de riz', 9, 35, 0.2, 7.4, 0.8, 1.5, 0.05, 'feculents'],
 
   // --- Viandes, poissons, œufs ---
@@ -70,10 +77,10 @@ const FOODS = [
   ['Tomate', 100, 18, 0.2, 3.9, 0.9, 1.2, 0.25, 'legumes'],
   ['Courgette', 100, 17, 0.3, 3, 1.2, 1, 0.2, 'legumes'],
   // "pinards" dans le tableur — coquille manifeste.
-  ['Épinards', 100, 23, 0.4, 3.6, 2.9, 0, 0.4, 'legumes'],
+  ['Épinards', 100, 23, 0.4, 3.6, 2.9, 2.2, 0.4, 'legumes'],
   ['Haricots verts', 100, 31, 0.2, 7, 1.8, 2.7, 0.3, 'legumes'],
   ['Concombre', 100, 16, 0.1, 3.6, 0.7, 0.5, 0.15, 'legumes'],
-  ['Champignons', 100, 22, 0.3, 3.3, 3.1, 0, 0.3, 'legumes'],
+  ['Champignons', 100, 22, 0.3, 3.3, 3.1, 1.0, 0.3, 'legumes'],
   ['Avocat', 100, 160, 15, 9, 2, 7, 1, 'legumes'],
   ['Soupe 10 légumes', 100, 25, 0.5, 4, 1, 1.5, 0.4, 'legumes'],
 
@@ -83,11 +90,11 @@ const FOODS = [
   // 52 kcal et 14 g de glucides correspondent à une POMME.
   ['Pomme', 100, 52, 0.2, 14, 0.3, 2, 0.2, 'fruits'],
   ['Orange', 100, 47, 0.1, 12, 0.9, 2.4, 0.15, 'fruits'],
-  ['Fraises', 100, 32, 0.3, 8, 0.7, 0, 0.4, 'fruits'],
+  ['Fraises', 100, 32, 0.3, 8, 0.7, 2.0, 0.4, 'fruits'],
   ['Kiwi', 100, 61, 0.5, 15, 1.1, 2.1, 0.3, 'fruits'],
   ['Myrtilles', 100, 60, 0.5, 12, 0.6, 2.4, 1.042, 'fruits'],
   ['Fruits rouges', 100, 50, 0.5, 8, 1, 5, 1.5, 'fruits'],
-  ['Compote sans sucre', 100, 50, 0.1, 12, 0.3, 0, 0.3, 'fruits'],
+  ['Compote sans sucre', 100, 50, 0.1, 12, 0.3, 1.3, 0.3, 'fruits'],
 
   // --- Matières grasses, oléagineux ---
   ['Huile d’olive', 100, 884, 100, 0, 0, 0, 0.8, 'matieres_grasses'],
@@ -104,37 +111,55 @@ const FOODS = [
 
   // --- Sauces et condiments ---
   ['Mayonnaise', 100, 680, 75, 1.4, 1.1, 0, 0.5, 'condiments'],
-  ['Ketchup', 100, 112, 0.1, 27, 1.3, 0, 0.3, 'condiments'],
-  ['Moutarde', 100, 66, 4, 5, 4.4, 0, 0.4, 'condiments'],
-  ['Sauce soja', 100, 53, 0, 5, 8, 0, 0.8, 'condiments'],
+  ['Ketchup', 100, 112, 0.1, 27, 1.3, 1.0, 0.3, 'condiments'],
+  ['Moutarde', 100, 66, 4, 5, 4.4, 3.3, 0.4, 'condiments'],
+  ['Sauce soja', 100, 53, 0, 5, 8, 0.8, 0.8, 'condiments'],
   ['Vinaigrette', 100, 450, 50, 0, 0, 0, 0.4, 'condiments'],
-  ['Hummus', 100, 230, 14, 18, 7, 0, 0.8, 'condiments'],
+  ['Hummus', 100, 230, 14, 18, 7, 5.4, 0.8, 'condiments'],
 
   // --- Plats préparés ---
-  ['Pizza margherita', 100, 270, 11, 33, 11, 0, 0.6, 'plats'],
-  ['Hamburger maison', 200, 540, 27, 40, 30, 0, 1.8, 'plats'],
-  ['Sandwich jambon-beurre', 150, 380, 12, 50, 17, 0, 1.5, 'plats'],
-  ['Sushi saumon (1 pièce)', 30, 50, 1, 8, 2, 0, 0.4, 'plats'],
+  ['Pizza margherita', 100, 270, 11, 33, 11, 2.3, 0.6, 'plats'],
+  ['Hamburger maison', 200, 540, 27, 40, 30, 4.0, 1.8, 'plats'],
+  ['Sandwich jambon-beurre', 150, 380, 12, 50, 17, 3.8, 1.5, 'plats'],
+  ['Sushi saumon (1 pièce)', 30, 50, 1, 8, 2, 0.2, 0.4, 'plats'],
 
   // --- Plaisirs ---
-  ['Cookie chocolat', 15, 73, 3.8, 9, 0.8, 0, 0.4, 'plaisirs'],
+  ['Cookie chocolat', 15, 73, 3.8, 9, 0.8, 0.4, 0.4, 'plaisirs'],
   // Fibres à 11 pour 10 g dans le tableur : ce serait 110 g/100 g,
   // impossible. Valeur corrigée sur la teneur réelle du chocolat noir.
   ['Chocolat noir 70 %', 10, 60, 4.3, 4.4, 1, 1.1, 0.25, 'plaisirs'],
-  ['Chocolat au lait', 10, 53, 3, 5.7, 0.8, 0, 0.2, 'plaisirs'],
-  ['Petit Beurre LU', 8, 35, 1, 6, 0.6, 0, 0.05, 'plaisirs'],
-  ['Barre céréales', 25, 95, 2, 17, 1.8, 0, 0.4, 'plaisirs'],
-  ['Glace vanille', 100, 207, 11, 24, 3.5, 0, 0.8, 'plaisirs'],
+  ['Chocolat au lait', 10, 53, 3, 5.7, 0.8, 0.34, 0.2, 'plaisirs'],
+  ['Petit Beurre LU', 8, 35, 1, 6, 0.6, 0.2, 0.05, 'plaisirs'],
+  ['Barre céréales', 25, 95, 2, 17, 1.8, 1.0, 0.4, 'plaisirs'],
+  ['Glace vanille', 100, 207, 11, 24, 3.5, 0.7, 0.8, 'plaisirs'],
   ['Coca-Cola', 100, 42, 0, 10.6, 0, 0, 0.12, 'boissons'],
   ['Coca-Cola Zero', 100, 0.3, 0, 0, 0, 0, 0.12, 'boissons'],
 ];
 
+/**
+ * Mise à jour EN PLACE, sur le nom.
+ *
+ * L'identifiant d'un aliment ne doit jamais changer : les recettes le
+ * référencent, et les lignes du journal alimentaire y sont rattachées.
+ * Supprimer puis réinsérer cassait les premières et détachait
+ * silencieusement les secondes.
+ */
 const UPSERT = `
   INSERT INTO foods
     (user_id, name, source, reference_qty, unit,
      kcal, fat_g, carbs_g, protein_g, fiber_g, price_eur, category)
   VALUES (NULL, $1, 'seed', $2, 'g', $3, $4, $5, $6, $7, $8, $9::food_category)
-  ON CONFLICT DO NOTHING
+  ON CONFLICT (name) WHERE user_id IS NULL AND source = 'seed'
+  DO UPDATE SET
+    reference_qty = EXCLUDED.reference_qty,
+    kcal          = EXCLUDED.kcal,
+    fat_g         = EXCLUDED.fat_g,
+    carbs_g       = EXCLUDED.carbs_g,
+    protein_g     = EXCLUDED.protein_g,
+    fiber_g       = EXCLUDED.fiber_g,
+    price_eur     = EXCLUDED.price_eur,
+    category      = EXCLUDED.category,
+    updated_at    = now()
 `;
 
 function report() {
@@ -171,11 +196,9 @@ async function main() {
 
   await waitForDatabase();
 
-  // Le catalogue commun est reconstruit à chaque exécution : c'est une
-  // référence, pas des données utilisateur. Les aliments personnels
-  // (user_id renseigné) ne sont jamais touchés.
-  const written = await withTransaction(async (client) => {
-    await client.query("DELETE FROM foods WHERE user_id IS NULL AND source = 'seed'");
+  // Le catalogue commun est mis à jour en place. Les aliments
+  // personnels (user_id renseigné) ne sont jamais touchés.
+  const result = await withTransaction(async (client) => {
     let n = 0;
     for (const [name, qty, kcal, fat, carbs, protein, fiber, price, category] of FOODS) {
       await client.query(UPSERT, [
@@ -183,10 +206,41 @@ async function main() {
       ]);
       n += 1;
     }
-    return n;
+
+    // Retrait des aliments disparus de la liste — mais seulement s'ils
+    // ne sont référencés nulle part. Un aliment utilisé par une recette
+    // ou présent dans le journal est CONSERVÉ et signalé : le supprimer
+    // effacerait de l'historique.
+    const { rows: stale } = await client.query(
+      `SELECT f.id, f.name,
+              EXISTS (SELECT 1 FROM recipe_ingredients ri WHERE ri.food_id = f.id) AS in_recipe,
+              EXISTS (SELECT 1 FROM food_entries fe WHERE fe.food_id = f.id) AS in_journal
+         FROM foods f
+        WHERE f.user_id IS NULL AND f.source = 'seed' AND f.name <> ALL($1::text[])`,
+      [FOODS.map(([name]) => name)],
+    );
+
+    const removable = stale.filter((x) => !x.in_recipe && !x.in_journal);
+    const kept = stale.filter((x) => x.in_recipe || x.in_journal);
+
+    if (removable.length) {
+      await client.query('DELETE FROM foods WHERE id = ANY($1::uuid[])',
+        [removable.map((x) => x.id)]);
+    }
+
+    return { written: n, removed: removable.length, kept };
   });
 
-  console.log(`\n[seed:foods] ${written} aliments enregistrés dans le catalogue commun.`);
+  console.log(`\n[seed:foods] ${result.written} aliments mis à jour dans le catalogue commun.`);
+  if (result.removed) console.log(`[seed:foods] ${result.removed} aliment(s) obsolète(s) retiré(s).`);
+  for (const x of result.kept) {
+    console.warn(
+      `[seed:foods] ⚠ « ${x.name} » ne figure plus dans la liste mais reste utilisé `
+      + `${x.in_recipe ? 'par une recette' : ''}`
+      + `${x.in_recipe && x.in_journal ? ' et ' : ''}`
+      + `${x.in_journal ? 'dans le journal' : ''} : conservé.`,
+    );
+  }
 }
 
 main()

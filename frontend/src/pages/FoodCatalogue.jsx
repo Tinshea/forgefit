@@ -170,7 +170,10 @@ export default function FoodCatalogue() {
           aria-label="Rechercher un aliment"
         />
 
-        <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+        {/* Une RANGÉE qui défile, et non un pavé qui s'enroule : onze
+            catégories repliées occupaient six lignes, soit tout le
+            premier écran d'un téléphone avant le moindre aliment. */}
+        <div className="chip-row">
           <button
             type="button" className="tab"
             aria-selected={category === ''} onClick={() => setCategory('')}
@@ -184,14 +187,17 @@ export default function FoodCatalogue() {
               onClick={() => setCategory(c.category)}
             >
               {CATEGORY_META[c.category]?.icon} {CATEGORY_META[c.category]?.label ?? c.category}
-              <span style={{ color: 'var(--text-muted)' }}> {c.count}</span>
+              {/* Espace INSÉCABLE : un simple espace en tête de nœud
+                  JSX est supprimé au rendu, et le compteur se collait
+                  au libellé — « FÉCULENTS16 ». */}
+              <span style={{ color: 'var(--text-muted)' }}>&nbsp;{c.count}</span>
             </button>
           ))}
         </div>
 
         <div className="field-block" style={{ marginTop: 14, marginBottom: 0 }}>
           <label>Trier par</label>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <div className="chip-row">
             {SORTS.map((s) => (
               <button
                 key={s.key} type="button" className="tab"

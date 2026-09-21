@@ -1,14 +1,13 @@
 // Mesures corporelles et indices dérivés.
 //
 // ┌─ POURQUOI LA TAILLE COMPTE ───────────────────────────────────────┐
-// │ Katch-McArdle (370 + 21,6 × masse maigre) est la formule la plus  │
-// │ juste pour qui connaît son taux de masse grasse. Mais la plupart  │
-// │ des gens ne le connaissent pas, et sans lui la formule ne peut    │
-// │ pas être appliquée du tout.                                       │
+// │ Les formules assises sur la masse maigre (Katch-McArdle,          │
+// │ Cunningham) demandent un taux de masse grasse que tout le monde   │
+// │ n'a pas. Sans lui, elles ne peuvent pas être appliquées du tout.  │
 // │                                                                    │
-// │ Mifflin-St Jeor prend en entrée taille, poids, âge et sexe — des  │
-// │ données que tout le monde possède. C'est le repli, et c'est là    │
-// │ que la taille devient indispensable.                              │
+// │ Mifflin-St Jeor et Harris-Benedict prennent en entrée taille,     │
+// │ poids, âge et sexe — des données que tout le monde possède. Ce    │
+// │ sont les replis, et c'est là que la taille devient indispensable. │
 // │                                                                    │
 // │ La taille sert aussi à l'IMC et surtout au FFMI, qui rapporte la  │
 // │ masse maigre au carré de la taille : un athlète de 1,90 m et un   │
@@ -18,13 +17,30 @@
 import { clamp } from './stats-math.js';
 
 /**
- * Métabolisme de base — Mifflin-St Jeor.
+ * ┌─ POURQUOI PLUSIEURS FORMULES ─────────────────────────────────────┐
+ * │ Aucune équation prédictive n'est « la bonne ». Validées contre    │
+ * │ calorimétrie indirecte, les meilleures placent environ deux tiers │
+ * │ des sujets à ±10 % de leur dépense réelle — et se trompent de     │
+ * │ plus de 10 % pour le tiers restant. Sur 1 700 kcal, ±10 % font    │
+ * │ ±170 kcal, soit largement de quoi transformer un déficit visé en  │
+ * │ maintien.                                                          │
+ * │                                                                    │
+ * │ D'où trois principes ici :                                        │
+ * │   1. la formule est un CHOIX, affiché et modifiable ;             │
+ * │   2. l'écart entre formules est montré, pas masqué ;              │
+ * │   3. la calibration sur données réelles (cf. tdee-calibration.js) │
+ * │      prime sur toute prédiction dès qu'elle est possible.         │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+
+/**
+ * Métabolisme de base — Mifflin-St Jeor (1990).
  *
  *   homme : 10×poids + 6,25×taille − 5×âge + 5
  *   femme : 10×poids + 6,25×taille − 5×âge − 161
  *
- * Reconnue comme la plus fiable des formules ne demandant pas la
- * composition corporelle.
+ * La plus fiable des formules ne demandant pas la composition
+ * corporelle, et celle que recommandent les sociétés de diététique.
  */
 export function mifflinStJeor({ weightKg, heightCm, age, sex }) {
   if (!(weightKg > 0) || !(heightCm > 0) || !(age > 0)) return null;
@@ -35,6 +51,38 @@ export function mifflinStJeor({ weightKg, heightCm, age, sex }) {
   return base - 78;
 }
 
+/**
+ * Harris-Benedict révisée — Roza & Shizgal (1984).
+ *
+ * La révision de 1984 corrige l'originale de 1919, établie sur une
+ * population plus maigre et plus active, qui surestimait d'environ 5 %.
+ * Reste légèrement plus haute que Mifflin sur la plupart des profils.
+ */
+export function harrisBenedict({ weightKg, heightCm, age, sex }) {
+  if (!(weightKg > 0) || !(heightCm > 0) || !(age > 0)) return null;
+  const male = 88.362 + 13.397 * weightKg + 4.799 * heightCm - 5.677 * age;
+  const female = 447.593 + 9.247 * weightKg + 3.098 * heightCm - 4.330 * age;
+  if (sex === 'male') return male;
+  if (sex === 'female') return female;
+  return (male + female) / 2;
+}
+
+/**
+ * Owen (1986) : poids seul.
+ *
+ *   homme : 879 + 10,2 × poids      femme : 795 + 7,18 × poids
+ *
+ * Volontairement rustique — ni taille ni âge. Elle sert de repère bas :
+ * quand elle s'écarte beaucoup des autres, c'est que le gabarit sort de
+ * l'ordinaire, et la prédiction est d'autant moins fiable.
+ */
+export function owen({ weightKg, sex }) {
+  if (!(weightKg > 0)) return null;
+  if (sex === 'female') return 795 + 7.18 * weightKg;
+  if (sex === 'male') return 879 + 10.2 * weightKg;
+  return (879 + 10.2 * weightKg + 795 + 7.18 * weightKg) / 2;
+}
+
 /** Métabolisme de base — Katch-McArdle, sur la masse maigre. */
 export function katchMcArdle(leanMassKg) {
   if (!(leanMassKg > 0)) return null;
@@ -42,32 +90,227 @@ export function katchMcArdle(leanMassKg) {
 }
 
 /**
- * Choisit la meilleure formule disponible et dit laquelle.
+ * Cunningham (1980) : 500 + 22 × masse maigre.
  *
- * L'utilisateur doit savoir sur quelle base son objectif est calculé :
- * un chiffre sans sa méthode n'est pas vérifiable.
+ * Même entrée que Katch-McArdle mais systématiquement plus haute —
+ * environ +90 kcal à 60 kg de masse maigre. Établie sur une population
+ * entraînée, elle est celle que retiennent le plus souvent les travaux
+ * en nutrition sportive. Chez un sujet sédentaire, elle surestime.
  */
-export function estimateBmr({ leanMassKg, weightKg, heightCm, age, sex }) {
-  const katch = katchMcArdle(leanMassKg);
-  if (katch) {
+export function cunningham(leanMassKg) {
+  if (!(leanMassKg > 0)) return null;
+  return 500 + 22 * leanMassKg;
+}
+
+/**
+ * Registre des formules.
+ *
+ * `needs` sert à l'interface : elle peut dire ce qui manque pour
+ * débloquer une méthode au lieu de la griser sans explication.
+ * `rank` fixe l'ordre de repli automatique, du plus au moins informé.
+ */
+export const BMR_FORMULAS = {
+  'katch-mcardle': {
+    label: 'Katch-McArdle',
+    short: 'Masse maigre',
+    rank: 1,
+    needs: ['masse maigre'],
+    unlock: 'ton taux de masse grasse',
+    precision: 'haute',
+    formula: '370 + 21,6 × masse maigre',
+    source: 'Katch & McArdle (1996), Exercise Physiology',
+    rationale: 'Prend en entrée le tissu métaboliquement actif plutôt que '
+      + 'le poids total. À poids égal, deux compositions corporelles '
+      + 'différentes ne dépensent pas la même chose.',
+    compute: ({ leanMassKg }) => katchMcArdle(leanMassKg),
+  },
+  cunningham: {
+    label: 'Cunningham',
+    short: 'Masse maigre, sportifs',
+    rank: 2,
+    needs: ['masse maigre'],
+    unlock: 'ton taux de masse grasse',
+    precision: 'haute',
+    formula: '500 + 22 × masse maigre',
+    source: 'Cunningham (1980), Am J Clin Nutr',
+    rationale: 'Établie sur une population entraînée. Rend environ 90 kcal '
+      + 'de plus que Katch-McArdle : à préférer si tu constates que tu '
+      + 'perds plus vite que prévu.',
+    compute: ({ leanMassKg }) => cunningham(leanMassKg),
+  },
+  'mifflin-st-jeor': {
+    label: 'Mifflin-St Jeor',
+    short: 'Taille, poids, âge',
+    rank: 3,
+    needs: ['poids', 'taille', 'date de naissance'],
+    precision: 'moyenne',
+    formula: '10×poids + 6,25×taille − 5×âge ± constante',
+    source: 'Mifflin et al. (1990), Am J Clin Nutr',
+    rationale: 'La référence quand la composition corporelle est inconnue. '
+      + 'N’exige que des mesures que tout le monde possède.',
+    compute: mifflinStJeor,
+  },
+  'harris-benedict': {
+    label: 'Harris-Benedict révisée',
+    short: 'Taille, poids, âge',
+    rank: 4,
+    needs: ['poids', 'taille', 'date de naissance'],
+    precision: 'moyenne',
+    formula: '88,36 + 13,40×poids + 4,80×taille − 5,68×âge (homme)',
+    source: 'Roza & Shizgal (1984), Am J Clin Nutr',
+    rationale: 'Révision de l’équation de 1919. Rend un peu plus que '
+      + 'Mifflin sur la plupart des profils.',
+    compute: harrisBenedict,
+  },
+  owen: {
+    label: 'Owen',
+    short: 'Poids seul',
+    rank: 5,
+    needs: ['poids'],
+    precision: 'basse',
+    formula: '879 + 10,2 × poids (homme)',
+    source: 'Owen et al. (1986/1987), Am J Clin Nutr',
+    rationale: 'Ni taille ni âge. Sert de garde-fou : un gros écart avec '
+      + 'les autres signale un gabarit atypique, donc une prédiction peu '
+      + 'fiable quelle que soit la formule.',
+    compute: owen,
+  },
+};
+
+/** Ordre de repli : la mieux informée d'abord. */
+const FALLBACK_ORDER = Object.entries(BMR_FORMULAS)
+  .sort((a, b) => a[1].rank - b[1].rank)
+  .map(([key]) => key);
+
+const round1 = (v) => Math.round(v * 10) / 10;
+
+/** Ce qui manque pour appliquer une formule donnée. */
+function missingFor(key, { leanMassKg, weightKg, heightCm, age }) {
+  const have = {
+    'masse maigre': leanMassKg > 0,
+    poids: weightKg > 0,
+    taille: heightCm > 0,
+    'date de naissance': age > 0,
+  };
+  return BMR_FORMULAS[key].needs.filter((n) => !have[n]);
+}
+
+/**
+ * Applique toutes les formules applicables.
+ *
+ * Renvoie aussi les non applicables, avec ce qui leur manque : une
+ * méthode absente sans explication ressemble à un bug.
+ */
+export function compareBmrMethods(inputs) {
+  const rows = FALLBACK_ORDER.map((key) => {
+    const spec = BMR_FORMULAS[key];
+    const missing = missingFor(key, inputs);
+    const value = missing.length ? null : spec.compute(inputs);
     return {
-      bmr: Math.round(katch * 10) / 10,
-      method: 'katch-mcardle',
-      method_label: 'Katch-McArdle (masse maigre)',
-      precision: 'haute',
-      note: 'Calculée sur ta masse maigre — la plus précise.',
+      key,
+      label: spec.label,
+      short: spec.short,
+      formula: spec.formula,
+      source: spec.source,
+      rationale: spec.rationale,
+      precision: spec.precision,
+      bmr: value == null ? null : round1(value),
+      available: value != null,
+      missing,
+    };
+  });
+
+  const values = rows.filter((r) => r.available).map((r) => r.bmr);
+  return {
+    methods: rows,
+    // L'écart entre formules EST l'information : il donne l'ordre de
+    // grandeur de l'incertitude, que choisir une seule formule masque.
+    spread: values.length > 1
+      ? {
+        min: Math.min(...values),
+        max: Math.max(...values),
+        delta: round1(Math.max(...values) - Math.min(...values)),
+      }
+      : null,
+  };
+}
+
+/**
+ * Choisit une formule et dit laquelle.
+ *
+ * `method` force un choix ; 'auto' (ou absent) prend la mieux informée
+ * des formules applicables. Un choix forcé mais inapplicable retombe
+ * automatiquement ET le signale — sinon l'utilisateur croirait ses
+ * cibles calculées avec une méthode qui n'a jamais tourné.
+ *
+ * `measuredBmr` court-circuite tout : une valeur mesurée ou calibrée
+ * n'est pas une prédiction, elle n'a pas à être devinée.
+ */
+export function estimateBmr({
+  leanMassKg, weightKg, heightCm, age, sex,
+  method = 'auto', measuredBmr = null,
+}) {
+  const inputs = { leanMassKg, weightKg, heightCm, age, sex };
+
+  if (measuredBmr > 0) {
+    return {
+      bmr: round1(measuredBmr),
+      method: 'mesure',
+      method_label: 'Mesure personnelle',
+      precision: 'mesurée',
+      requested: method,
+      fell_back: false,
+      note: 'Valeur saisie ou calibrée sur tes données : aucune formule '
+        + 'prédictive n’est utilisée.',
     };
   }
 
-  const mifflin = mifflinStJeor({ weightKg, heightCm, age, sex });
-  if (mifflin) {
+  const requested = method && method !== 'auto' && BMR_FORMULAS[method] ? method : null;
+  const order = requested
+    ? [requested, ...FALLBACK_ORDER.filter((k) => k !== requested)]
+    : FALLBACK_ORDER;
+
+  for (const key of order) {
+    const missing = missingFor(key, inputs);
+    if (missing.length) continue;
+    const spec = BMR_FORMULAS[key];
+    const fellBack = !!requested && key !== requested;
+    const requestedMissing = fellBack ? missingFor(requested, inputs) : [];
+
+    // En mode automatique, la formule retenue n'est pas forcément la
+    // meilleure existante — seulement la meilleure APPLICABLE. Le dire,
+    // et nommer la mesure qui débloquerait la suivante : sans cela,
+    // l'utilisateur n'a aucune raison de soupçonner qu'il existe mieux.
+    let upgrade = null;
+    if (!requested) {
+      const better = FALLBACK_ORDER.slice(0, FALLBACK_ORDER.indexOf(key))
+        .map((k) => ({ key: k, missing: missingFor(k, inputs) }))
+        .find((c) => c.missing.length);
+      if (better) {
+        const spec2 = BMR_FORMULAS[better.key];
+        // `needs` nomme l'ENTRÉE de la formule, `unlock` nomme le champ
+        // que l'utilisateur remplit réellement. Personne ne saisit une
+        // masse maigre : on saisit un taux de masse grasse, dont elle
+        // se déduit.
+        upgrade = `Renseigne ${spec2.unlock ?? better.missing.join(', ')} pour `
+          + `passer à ${spec2.label}, plus précise.`;
+      }
+    }
+
     return {
-      bmr: Math.round(mifflin * 10) / 10,
-      method: 'mifflin-st-jeor',
-      method_label: 'Mifflin-St Jeor (taille, poids, âge)',
-      precision: 'moyenne',
-      note: 'Renseigne ton taux de masse grasse pour passer à '
-        + 'Katch-McArdle, plus précise.',
+      bmr: round1(spec.compute(inputs)),
+      method: key,
+      method_label: `${spec.label} (${spec.short.toLowerCase()})`,
+      precision: spec.precision,
+      formula: spec.formula,
+      source: spec.source,
+      requested: method,
+      fell_back: fellBack,
+      upgrade,
+      note: fellBack
+        ? `${BMR_FORMULAS[requested].label} demande ${requestedMissing.join(', ')} : `
+          + `calcul fait avec ${spec.label} en attendant.`
+        : (upgrade ?? spec.rationale),
     };
   }
 
@@ -81,6 +324,8 @@ export function estimateBmr({ leanMassKg, weightKg, heightCm, age, sex }) {
     method: null,
     method_label: null,
     precision: null,
+    requested: method,
+    fell_back: false,
     note: `Renseigne ${missing.join(', ')} pour estimer ta dépense.`,
     missing,
   };
@@ -194,6 +439,8 @@ export function deriveMetrics({
   // Masse maigre mesurée directement (DEXA, balance à impédance). Elle
   // prime sur celle déduite du taux de masse grasse.
   leanMassKg = null,
+  bmrMethod = 'auto',
+  measuredBmr = null,
 }) {
   const age = ageFrom(birthDate);
   const lean = leanMassKg ?? leanMass(weightKg, bodyFatPct);
@@ -210,7 +457,13 @@ export function deriveMetrics({
     ffmi: ffmiValue
       ? { ...ffmiValue, label: ffmiCategory(ffmiValue.normalized, sex) }
       : null,
-    bmr: estimateBmr({ leanMassKg: lean, weightKg, heightCm, age, sex }),
+    bmr: estimateBmr({
+      leanMassKg: lean, weightKg, heightCm, age, sex,
+      method: bmrMethod, measuredBmr,
+    }),
+    // Toutes les formules côte à côte : l'écart entre elles est ce qui
+    // dit combien vaut vraiment le chiffre retenu.
+    bmr_methods: compareBmrMethods({ leanMassKg: lean, weightKg, heightCm, age, sex }),
     hydration: hydrationTarget(weightKg, { trainingMinutes }),
   };
 }

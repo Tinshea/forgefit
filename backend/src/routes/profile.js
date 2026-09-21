@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { asyncHandler, badRequest, userOf } from '../lib/http.js';
 import { ageFrom } from '../services/anthropometry.js';
-import { resolveBodyProfile, trainingMinutesToday } from '../services/body-profile.js';
+import {
+  resolveBodyProfile, trainingMinutesToday, observedLoad,
+} from '../services/body-profile.js';
+import { reviewActivity, multiplierDriftKcal } from '../services/training-load.js';
 import {
   GOAL_SETTINGS, ACTIVITY_MULTIPLIERS, ACTIVITY_LABELS, computeTargets,
 } from '../services/nutrition.js';
@@ -24,6 +27,12 @@ async function buildProfile(userId) {
 
   const { user, body, sources, composition, goals, derived } = resolved;
 
+  // Le niveau d'activité est l'entrée la plus lourde du calcul de
+  // dépense — et la seule qu'on choisit une fois sans jamais la revoir.
+  // On la confronte donc aux séances réellement enregistrées, là où
+  // elle se règle.
+  const load = await observedLoad(userId, 28);
+
   const nutrition = computeTargets({
     leanMassKg: body.lean_mass_kg,
     weightKg: body.weight_kg,
@@ -36,6 +45,8 @@ async function buildProfile(userId) {
     proteinOverrideG: goals.protein_override_g,
     fatOverrideG: goals.fat_override_g,
     fiberTargetG: goals.fiber_target_g,
+    bmrMethod: goals.bmr_method,
+    measuredBmr: goals.measured_bmr,
   });
 
   // Ce qui manque, et ce que ça débloque : une liste de champs vides ne
@@ -63,7 +74,8 @@ async function buildProfile(userId) {
   if (body.body_fat_pct == null && sources.lean_mass?.origin !== 'mesuré') {
     gaps.push({
       field: 'body_fat_pct', label: 'Taux de masse grasse',
-      unlocks: 'FFMI et dépense par Katch-McArdle, plus précise',
+      unlocks: 'FFMI, et les formules assises sur la masse maigre '
+        + '(Katch-McArdle, Cunningham)',
       hint: 'Une balance à impédance reliée à Santé le renseigne automatiquement.',
     });
   }
@@ -87,6 +99,17 @@ async function buildProfile(userId) {
     nutrition_targets: nutrition.targets,
     nutrition_method: nutrition.method,
     gaps,
+    // Confrontation du niveau déclaré à la charge enregistrée, affichée
+    // là où ce niveau se règle : un écart d'un cran vaut plusieurs
+    // centaines de kilocalories par jour.
+    activity_check: {
+      ...reviewActivity({ declared: goals.activity, load }),
+      kcal_hint: multiplierDriftKcal(
+        nutrition.breakdown?.bmr,
+        goals.activity,
+        reviewActivity({ declared: goals.activity, load }).observed,
+      ),
+    },
     options: {
       goals: Object.entries(GOAL_SETTINGS).map(([key, v]) => ({
         key, label: v.label, note: v.note,

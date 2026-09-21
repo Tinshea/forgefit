@@ -16,6 +16,7 @@
 
 import { query } from '../db.js';
 import { deriveMetrics } from './anthropometry.js';
+import { summarizeLoad } from './training-load.js';
 
 /** Mesures de composition corporelle publiées par les appareils. */
 const BODY_METRICS = [
@@ -60,7 +61,8 @@ export async function resolveBodyProfile(userId, { trainingMinutes = 0 } = {}) {
     `SELECT u.id, u.email, u.display_name, u.sex, u.birth_date, u.locale,
             u.bodyweight_kg, u.height_cm,
             n.goal, n.activity, n.lean_mass_kg, n.body_fat_pct,
-            n.kcal_override, n.protein_override_g, n.fat_override_g, n.fiber_target_g
+            n.kcal_override, n.protein_override_g, n.fat_override_g, n.fiber_target_g,
+            n.day_split_pct, n.bmr_method, n.measured_bmr
        FROM users u
        LEFT JOIN nutrition_profiles n ON n.user_id = u.id
       WHERE u.id = $1`,
@@ -90,6 +92,11 @@ export async function resolveBodyProfile(userId, { trainingMinutes = 0 } = {}) {
     birthDate: p.birth_date,
     sex: p.sex,
     trainingMinutes,
+    // Le choix de formule suit l'état corporel : sans lui, la page
+    // Profil afficherait un métabolisme de base calculé autrement que
+    // celui qui sert réellement aux cibles.
+    bmrMethod: p.bmr_method ?? 'auto',
+    measuredBmr: num(p.measured_bmr),
   });
 
   return {
@@ -136,19 +143,75 @@ export async function resolveBodyProfile(userId, { trainingMinutes = 0 } = {}) {
       kcal_override: num(p.kcal_override),
       protein_override_g: num(p.protein_override_g),
       fat_override_g: num(p.fat_override_g),
+      day_split_pct: Number(p.day_split_pct ?? 0),
+      // 'auto' plutôt que NULL vers l'extérieur : l'interface a besoin
+      // d'une valeur à sélectionner dans une liste.
+      bmr_method: p.bmr_method ?? 'auto',
+      measured_bmr: num(p.measured_bmr),
     },
     derived,
   };
 }
 
-/** Minutes d'entraînement du jour, pour l'objectif d'hydratation. */
+/**
+ * Minutes d'entraînement du jour.
+ *
+ * Mesurées sur la DURÉE DE SÉANCE, pas sur la somme des durées de
+ * séries : seules les séries chronométrées (étirements, gainage) en
+ * portent une. Une séance de musculation de 75 minutes était comptée
+ * pour zéro, ce qui annulait le supplément d'hydratation les jours où
+ * il était justement nécessaire.
+ */
 export async function trainingMinutesToday(userId) {
-  const { rows } = await query(
-    `SELECT COALESCE(SUM(ws.duration_s), 0) / 60.0 AS minutes
-       FROM workout_sets ws
-       JOIN workout_sessions s ON s.id = ws.session_id
-      WHERE s.user_id = $1 AND ws.completed_at >= date_trunc('day', now())`,
+  const { rows: [row] } = await query(
+    `SELECT COALESCE(SUM(
+              EXTRACT(EPOCH FROM (COALESCE(s.ended_at, now()) - s.started_at)) / 60
+            ), 0)::numeric AS minutes
+       FROM workout_sessions s
+      WHERE s.user_id = $1 AND s.started_at >= date_trunc('day', now())`,
     [userId],
   );
-  return Number(rows[0]?.minutes) || 0;
+  return Number(row?.minutes) || 0;
+}
+
+/** Séances du jour, pour distinguer un jour d'entraînement d'un jour de repos. */
+export async function trainingToday(userId) {
+  const { rows: [row] } = await query(
+    `SELECT COUNT(*)::int AS sessions,
+            COALESCE(SUM(
+              EXTRACT(EPOCH FROM (COALESCE(s.ended_at, now()) - s.started_at)) / 60
+            ), 0)::numeric AS minutes
+       FROM workout_sessions s
+      WHERE s.user_id = $1 AND s.started_at >= date_trunc('day', now())`,
+    [userId],
+  );
+  return {
+    sessions: Number(row?.sessions ?? 0),
+    minutes: Math.round(Number(row?.minutes ?? 0)),
+    is_training_day: Number(row?.sessions ?? 0) > 0,
+  };
+}
+
+/**
+ * Charge d'entraînement observée sur une fenêtre glissante.
+ *
+ * Sert à confronter l'activité DÉCLARÉE dans le profil à celle
+ * réellement enregistrée : le multiplicateur d'activité est l'entrée la
+ * plus lourde du calcul nutritionnel, et la seule qu'on choisit une fois
+ * sans jamais la revoir.
+ */
+export async function observedLoad(userId, days = 28) {
+  const { rows: [row] } = await query(
+    `SELECT COUNT(*)::int AS sessions,
+            COALESCE(SUM(
+              EXTRACT(EPOCH FROM (COALESCE(s.ended_at, s.started_at) - s.started_at)) / 60
+            ), 0)::numeric AS minutes,
+            COUNT(*) FILTER (WHERE s.ended_at IS NULL)::int AS open_sessions,
+            COUNT(DISTINCT (s.started_at AT TIME ZONE 'UTC')::date)::int AS training_days
+       FROM workout_sessions s
+      WHERE s.user_id = $1
+        AND s.started_at > now() - ($2 || ' days')::interval`,
+    [userId, days],
+  );
+  return summarizeLoad(row, days);
 }

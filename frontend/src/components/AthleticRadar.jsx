@@ -1,8 +1,4 @@
 import { useState } from 'react';
-import {
-  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer, Tooltip, Legend,
-} from 'recharts';
 import ReferenceNote from './ReferenceNote.jsx';
 
 /**
@@ -19,32 +15,115 @@ const RANK_HINT = {
   D: '50–59', E: '40–49', F: '< 40',
 };
 
-function RadarTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
+/**
+ * Le radar, tracé à la main.
+ *
+ * ┌─ POURQUOI SE PASSER DE LA BIBLIOTHÈQUE ───────────────────────────┐
+ * │ Ce composant tirait `recharts` — 96 Ko compressés — pour dessiner │
+ * │ un hexagone et deux polygones. Or il vit sur l'Aperçu, qui est la │
+ * │ route par DÉFAUT sur grand écran : toute ouverture de             │
+ * │ l'application payait cette bibliothèque, qu'on regarde le radar   │
+ * │ ou non.                                                           │
+ * │                                                                    │
+ * │ Le tracé ci-dessous fait une soixantaine de lignes, n'ajoute rien │
+ * │ au lot, et obéit à la direction artistique au lieu d'y résister.  │
+ * │                                                                    │
+ * │ `recharts` sert encore aux courbes de Tendances et de Santé, où   │
+ * │ les échelles, les axes temporels et les infobulles justifient     │
+ * │ leur poids — mais ces pages ne sont plus sur le chemin critique.  │
+ * └────────────────────────────────────────────────────────────────────┘
+ *
+ * Les sommets partent du HAUT et tournent dans le sens horaire : c'est
+ * la convention de lecture d'un radar, et l'inverse déroute.
+ */
+/** Marge du cadre, en unités du tracé. Latérale surtout : c'est là que
+ *  les libellés débordent. */
+const PAD = 62;
+const PAD_Y = 10;
+
+function RadarPlot({ axes, size = 300 }) {
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size * 0.33;
+  const n = axes.length;
+
+  const point = (i, value) => {
+    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    const d = (Math.max(0, Math.min(100, value)) / 100) * r;
+    return [cx + d * Math.cos(angle), cy + d * Math.sin(angle)];
+  };
+
+  const polygon = (values) => values
+    .map((v, i) => point(i, v).map((c) => c.toFixed(1)).join(','))
+    .join(' ');
+
+  const scores = axes.map((a) => a.score);
+  const median = axes.map(() => 50);
+
   return (
-    <div
-      style={{
-        background: 'var(--surface-2)',
-        border: '1px solid var(--border)',
-        borderRadius: 10,
-        padding: '10px 12px',
-        fontSize: 13,
-      }}
-    >
-      <div style={{ fontWeight: 700, marginBottom: 6 }}>{label}</div>
-      {payload.map((p) => (
-        <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span
-            className="legend-swatch"
-            style={{ background: p.color }}
-            aria-hidden="true"
+    <div className="radar-plot">
+      {/* Le cadre déborde LATÉRALEMENT du tracé : les libellés sont
+          ancrés à l'extérieur des sommets et s'étendent vers le bord.
+          Avec un cadre carré collé au tracé, « Explosivité » et
+          « Force Tirage » étaient coupés net. */}
+      <svg
+        viewBox={`${-PAD} ${-PAD_Y} ${size + PAD * 2} ${size + PAD_Y * 2}`}
+        role="img"
+        aria-label="Radar athlétique"
+      >
+        {/* Toile : quatre anneaux, un par tranche de 25 points. */}
+        {[25, 50, 75, 100].map((ring) => (
+          <polygon
+            key={ring}
+            className="radar-ring"
+            points={polygon(axes.map(() => ring))}
           />
-          <span style={{ color: 'var(--text-secondary)' }}>{p.name}</span>
-          <strong style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
-            {Math.round(p.value)}
-          </strong>
-        </div>
-      ))}
+        ))}
+
+        {/* Rayons vers chaque sommet. */}
+        {axes.map((a, i) => {
+          const [x, y] = point(i, 100);
+          return <line key={a.axis} className="radar-spoke" x1={cx} y1={cy} x2={x} y2={y} />;
+        })}
+
+        <polygon className="radar-median" points={polygon(median)} />
+        <polygon className="radar-score" points={polygon(scores)} />
+
+        {axes.map((a, i) => {
+          const [x, y] = point(i, 100);
+          // Le libellé se pousse vers l'extérieur, et son ancrage suit
+          // le côté : à gauche il s'aligne à droite, et inversement.
+          const dx = x - cx;
+          const lx = cx + dx * 1.16;
+          const ly = cy + (y - cy) * 1.16;
+          const anchor = Math.abs(dx) < 4 ? 'middle' : dx > 0 ? 'start' : 'end';
+          return (
+            <text
+              key={`l-${a.axis}`}
+              className="radar-label"
+              x={lx} y={ly} textAnchor={anchor} dominantBaseline="middle"
+            >
+              {a.label}
+            </text>
+          );
+        })}
+
+        {axes.map((a, i) => {
+          const [x, y] = point(i, a.score);
+          return <circle key={`p-${a.axis}`} className="radar-dot" cx={x} cy={y} r="3.5" />;
+        })}
+      </svg>
+
+      <div className="legend" style={{ justifyContent: 'center' }}>
+        <span className="legend-item">
+          <span className="legend-swatch" style={{ background: 'var(--series-1)' }} />
+          Toi
+        </span>
+        <span className="legend-item">
+          <span className="legend-swatch" style={{ background: 'var(--series-2)' }} />
+          Médiane de référence
+        </span>
+      </div>
     </div>
   );
 }
@@ -60,12 +139,6 @@ export default function AthleticRadar({ data }) {
       </div>
     );
   }
-
-  const chartData = data.axes.map((a) => ({
-    axis: a.label,
-    score: a.score,
-    median: 50,
-  }));
 
   const rank = data.rank ?? 'F';
 
@@ -86,46 +159,7 @@ export default function AthleticRadar({ data }) {
         </div>
       </div>
 
-      <div style={{ width: '100%', height: 320 }}>
-        <ResponsiveContainer>
-          <RadarChart data={chartData} outerRadius="72%">
-            <PolarGrid stroke="var(--grid)" />
-            <PolarAngleAxis
-              dataKey="axis"
-              tick={{ fill: 'var(--text-secondary)', fontSize: 12 }}
-            />
-            <PolarRadiusAxis
-              domain={[0, 100]}
-              tickCount={5}
-              tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
-              axisLine={false}
-              angle={90}
-            />
-            <Radar
-              name="Médiane de référence"
-              dataKey="median"
-              stroke="var(--series-2)"
-              strokeWidth={2}
-              strokeDasharray="4 4"
-              fill="none"
-              isAnimationActive={false}
-            />
-            <Radar
-              name="Toi"
-              dataKey="score"
-              stroke="var(--series-1)"
-              strokeWidth={2}
-              fill="var(--series-1)"
-              fillOpacity={0.28}
-              isAnimationActive={false}
-            />
-            <Legend
-              wrapperStyle={{ fontSize: 12, color: 'var(--text-secondary)' }}
-            />
-            <Tooltip content={<RadarTooltip />} />
-          </RadarChart>
-        </ResponsiveContainer>
-      </div>
+      <RadarPlot axes={data.axes} />
 
       <button
         type="button"

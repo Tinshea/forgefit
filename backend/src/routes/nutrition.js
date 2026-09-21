@@ -5,12 +5,22 @@ import {
   computeTargets, scaleFood, validateFoodCoherence,
   GOAL_SETTINGS, ACTIVITY_MULTIPLIERS, ACTIVITY_LABELS,
 } from '../services/nutrition.js';
-import { resolveBodyProfile } from '../services/body-profile.js';
+import { resolveBodyProfile, observedLoad, trainingToday } from '../services/body-profile.js';
+import {
+  dayTypeFactors, reviewActivity, multiplierDriftKcal,
+} from '../services/training-load.js';
 import { findByBarcode, searchByName, OffUnavailable } from '../services/openfoodfacts.js';
+import { reviewTargets, REFERENCES as NUTRITION_REFERENCES } from '../services/nutrition-evidence.js';
+import { suggestMeals } from '../services/meal-planner.js';
+import { BMR_FORMULAS } from '../services/anthropometry.js';
+import { calibrateTdee, explainCalibration, MIN_DAYS } from '../services/tdee-calibration.js';
 
 export const nutritionRouter = Router();
 
 const MEALS = ['matin', 'midi', 'soir', 'collation'];
+
+/** Clés acceptées pour `bmr_method`, 'mesure' compris. */
+const BMR_METHOD_KEYS = new Set([...Object.keys(BMR_FORMULAS), 'mesure']);
 
 const FOOD_FIELDS = `
   id, user_id, name, brand, barcode, source, reference_qty, unit,
@@ -29,13 +39,26 @@ const FOOD_FIELDS = `
  * Profil : deux résolutions séparées produisaient deux métabolismes de
  * base différents pour le même utilisateur.
  */
-async function targetsFor(userId) {
+async function targetsFor(userId, { dayType = null } = {}) {
   const resolved = await resolveBodyProfile(userId);
   if (!resolved) return { targets: null, note: 'Profil introuvable.' };
 
   const { body, user, goals } = resolved;
 
-  return computeTargets({
+  // Répartition entraînement / repos. Elle ne s'applique que si l'on
+  // sait de quel type est le jour ET que l'utilisateur l'a activée.
+  let dayFactor = 1;
+  let split = null;
+  if (goals.day_split_pct > 0 && dayType) {
+    const load = await observedLoad(userId, 28);
+    split = dayTypeFactors({
+      trainingDaysPerWeek: load.training_days_per_week,
+      shiftPct: goals.day_split_pct,
+    });
+    dayFactor = dayType === 'entrainement' ? split.training : split.rest;
+  }
+
+  const computed = computeTargets({
     leanMassKg: body.lean_mass_kg,
     weightKg: body.weight_kg,
     heightCm: body.height_cm,
@@ -47,7 +70,13 @@ async function targetsFor(userId) {
     proteinOverrideG: goals.protein_override_g,
     fatOverrideG: goals.fat_override_g,
     fiberTargetG: goals.fiber_target_g,
+    dayFactor,
+    dayType,
+    bmrMethod: goals.bmr_method,
+    measuredBmr: goals.measured_bmr,
   });
+
+  return { ...computed, split };
 }
 
 /** GET /api/nutrition/profile — profil, cibles et méthode de calcul. */
@@ -76,6 +105,12 @@ nutritionRouter.get('/profile', asyncHandler(async (req, res) => {
       activities: Object.entries(ACTIVITY_MULTIPLIERS).map(([key, multiplier]) => ({
         key, multiplier, label: ACTIVITY_LABELS[key],
       })),
+      // Les formules sont renvoyées CALCULÉES sur le profil courant, pas
+      // en abstrait : choisir entre « Katch-McArdle » et « Cunningham »
+      // n'a aucun sens tant qu'on ne voit pas que l'une donne 1 742 kcal
+      // et l'autre 1 897.
+      bmr_methods: resolved?.derived?.bmr_methods?.methods ?? [],
+      bmr_spread: resolved?.derived?.bmr_methods?.spread ?? null,
     },
   });
 }));
@@ -86,6 +121,8 @@ nutritionRouter.put('/profile', asyncHandler(async (req, res) => {
     goal, activity, lean_mass_kg: leanMass, body_fat_pct: bodyFat,
     kcal_override: kcalOverride, protein_override_g: proteinOverride,
     fat_override_g: fatOverride, fiber_target_g: fiberTarget,
+    day_split_pct: daySplit,
+    bmr_method: bmrMethod, measured_bmr: measuredBmr,
   } = req.body ?? {};
 
   if (goal && !GOAL_SETTINGS[goal]) {
@@ -94,34 +131,145 @@ nutritionRouter.put('/profile', asyncHandler(async (req, res) => {
   if (activity && !ACTIVITY_MULTIPLIERS[activity]) {
     throw badRequest(`Niveau d’activité inconnu : ${activity}`);
   }
+  // 'auto' est l'absence de choix : il s'écrit NULL en base, et la
+  // contrainte CHECK le refuserait tel quel.
+  const methodValue = bmrMethod === 'auto' ? null : (bmrMethod ?? null);
+  if (methodValue && !BMR_METHOD_KEYS.has(methodValue)) {
+    throw badRequest(`Méthode de calcul inconnue : ${bmrMethod}. Attendu : auto, `
+      + `${[...BMR_METHOD_KEYS].join(', ')}.`);
+  }
+  if (methodValue === 'mesure' && !(measuredBmr > 0)) {
+    throw badRequest('La méthode « mesure » exige une valeur de métabolisme de base. '
+      + 'Lance une calibration ou saisis ta mesure.');
+  }
+  if (measuredBmr != null && measuredBmr !== '' && !(measuredBmr > 500 && measuredBmr < 5000)) {
+    throw badRequest('Le métabolisme de base mesuré doit être compris entre 500 et '
+      + '5 000 kcal.');
+  }
+  if (daySplit != null && !(daySplit >= 0 && daySplit <= 30)) {
+    throw badRequest(
+      'day_split_pct doit être compris entre 0 et 30 %. Au-delà, les jours de repos '
+      + 'descendraient sous un apport raisonnable.',
+    );
+  }
 
   await query(
     `INSERT INTO nutrition_profiles
        (user_id, goal, activity, lean_mass_kg, body_fat_pct,
-        kcal_override, protein_override_g, fat_override_g, fiber_target_g, updated_at)
+        kcal_override, protein_override_g, fat_override_g, fiber_target_g,
+        day_split_pct, bmr_method, measured_bmr, updated_at)
      VALUES ($1,
              COALESCE($2::nutrition_goal, 'maintien'),
              COALESCE($3::activity_level, 'leger'),
-             $4, $5, $6, $7, $8, COALESCE($9, 30), now())
+             $4, $5, $6, $7, $8, COALESCE($9, 30), COALESCE($10, 0),
+             $11, $12, now())
      ON CONFLICT (user_id) DO UPDATE SET
-       goal               = COALESCE(EXCLUDED.goal, nutrition_profiles.goal),
-       activity           = COALESCE(EXCLUDED.activity, nutrition_profiles.activity),
+       -- Les PARAMÈTRES BRUTS, pas EXCLUDED : celui-ci porte déjà le
+       -- COALESCE de l'INSERT, si bien qu'une mise à jour partielle
+       -- écrasait l'objectif par « maintien » et l'activité par
+       -- « léger ». Modifier un seul champ réinitialisait les deux
+       -- entrées les plus structurantes du calcul.
+       goal               = COALESCE($2::nutrition_goal, nutrition_profiles.goal),
+       activity           = COALESCE($3::activity_level, nutrition_profiles.activity),
        lean_mass_kg       = COALESCE($4, nutrition_profiles.lean_mass_kg),
        body_fat_pct       = COALESCE($5, nutrition_profiles.body_fat_pct),
        kcal_override      = $6,
        protein_override_g = $7,
        fat_override_g     = $8,
        fiber_target_g     = COALESCE($9, nutrition_profiles.fiber_target_g),
+       day_split_pct      = COALESCE($10, nutrition_profiles.day_split_pct),
+       -- 'auto' doit pouvoir REVENIR à NULL : un COALESCE rendrait le
+       -- choix automatique impossible à réactiver une fois une formule
+       -- fixée. D'où le drapeau explicite plutôt qu'un test sur NULL.
+       bmr_method         = CASE WHEN $13 THEN $11 ELSE nutrition_profiles.bmr_method END,
+       measured_bmr       = CASE WHEN $14 THEN $12 ELSE nutrition_profiles.measured_bmr END,
        updated_at         = now()`,
     [
       userOf(req), goal ?? null, activity ?? null,
       leanMass ?? null, bodyFat ?? null,
       kcalOverride ?? null, proteinOverride ?? null, fatOverride ?? null,
-      fiberTarget ?? null,
+      fiberTarget ?? null, daySplit ?? null,
+      methodValue, measuredBmr === '' ? null : (measuredBmr ?? null),
+      bmrMethod !== undefined, measuredBmr !== undefined,
     ],
   );
 
   res.json(await targetsFor(userOf(req)));
+}));
+
+/**
+ * GET /api/nutrition/calibration?days=42
+ *
+ * La dépense énergétique RÉELLE, déduite du journal et des pesées.
+ *
+ * C'est la seule mesure de cette application qui ne repose sur aucune
+ * équation de population : le bilan énergétique est une identité
+ * comptable, pas une corrélation. Quand assez de données existent, elle
+ * bat toutes les formules ; quand elles manquent, elle le dit et
+ * n'invente rien.
+ */
+nutritionRouter.get('/calibration', asyncHandler(async (req, res) => {
+  const userId = userOf(req);
+  // 42 jours par défaut : trois cycles hebdomadaires complets, assez
+  // long pour noyer les oscillations hydriques, assez court pour que la
+  // composition corporelle n'ait pas trop changé.
+  const days = Math.min(Math.max(Number(req.query.days) || 42, MIN_DAYS), 180);
+
+  const resolved = await resolveBodyProfile(userId);
+  if (!resolved) throw notFound('Profil introuvable.');
+
+  const [intake, weights, computed] = await Promise.all([
+    query(
+      `SELECT consumed_on::text AS date, kcal::float AS kcal
+         FROM nutrition_daily
+        WHERE user_id = $1 AND consumed_on >= CURRENT_DATE - $2::int
+        ORDER BY consumed_on`,
+      [userId, days],
+    ),
+    query(
+      // Une seule pesée par jour : plusieurs mesures le même jour
+      // pondéreraient ce jour-là dans la régression sans rien apporter.
+      `SELECT DISTINCT ON (recorded_at::date)
+              recorded_at::date::text AS date, magnitude::float AS weight_kg
+         FROM health_metrics
+        WHERE user_id = $1 AND metric_type = 'weight'
+          AND magnitude IS NOT NULL
+          AND recorded_at >= now() - ($2::int || ' days')::interval
+        ORDER BY recorded_at::date, recorded_at DESC`,
+      [userId, days],
+    ),
+    targetsFor(userId),
+  ]);
+
+  const declaredMultiplier = ACTIVITY_MULTIPLIERS[resolved.goals.activity] ?? null;
+  const result = calibrateTdee({
+    intake: intake.rows,
+    weights: weights.rows,
+    predictedTdee: computed.breakdown?.tdee ?? null,
+    bmr: computed.breakdown?.bmr ?? null,
+  });
+
+  res.json({
+    window_days: days,
+    ...result,
+    declared_activity: resolved.goals.activity,
+    declared_multiplier: declaredMultiplier,
+    explanation: explainCalibration(result, { declaredMultiplier }),
+    method: [
+      'Bilan énergétique : ce qui est stocké est ce qui est mangé moins ce '
+      + 'qui est dépensé.',
+      'Tendance de poids par régression linéaire sur toutes les pesées — pas '
+      + 'par différence entre la première et la dernière, qu’un jour de '
+      + 'rétention d’eau suffirait à fausser.',
+      'Conversion : 7 700 kcal par kilogramme (Wishnofsky, 1958). '
+      + 'Approximation valable pour une variation surtout adipeuse.',
+      'Les jours non journalisés sont EXCLUS de la moyenne, pas comptés à '
+      + 'zéro. Au-delà de 20 % de jours manquants, le calcul est refusé.',
+    ],
+    caveat: 'Cette estimation vaut pour la période observée. Un changement de '
+      + 'poids important, de niveau d’activité ou de saison la périme : '
+      + 'relance-la de temps en temps.',
+  });
 }));
 
 // ---------------------------------------------------------------------
@@ -272,7 +420,13 @@ nutritionRouter.get('/day', asyncHandler(async (req, res) => {
   const userId = userOf(req);
   const date = req.query.date ?? null;
 
-  const [entries, byMeal, totals, computed] = await Promise.all([
+  // Le type de jour détermine l'objectif calorique quand la répartition
+  // entraînement / repos est activée. Il se lit sur les séances du jour,
+  // pas sur une case à cocher.
+  const training = await trainingToday(userId);
+  const dayType = training.is_training_day ? 'entrainement' : 'repos';
+
+  const [entries, byMeal, totals, computed, load] = await Promise.all([
     query(
       `SELECT id, meal, food_id, food_name, quantity, unit,
               kcal, fat_g, carbs_g, protein_g, fiber_g, price_eur, note
@@ -296,7 +450,8 @@ nutritionRouter.get('/day', asyncHandler(async (req, res) => {
         WHERE user_id = $1 AND consumed_on = COALESCE($2::date, CURRENT_DATE)`,
       [userId, date],
     ),
-    targetsFor(userId),
+    targetsFor(userId, { dayType }),
+    observedLoad(userId, 28),
   ]);
 
   const consumed = totals.rows[0] ?? {
@@ -325,6 +480,32 @@ nutritionRouter.get('/day', asyncHandler(async (req, res) => {
     breakdown: computed.breakdown ?? null,
     method: computed.method ?? null,
     warnings: computed.warnings ?? [],
+    // Confrontation des cibles aux repères publiés. Des CONSTATS, pas
+    // des corrections : les cibles restent celles de l'utilisateur, et
+    // les corriger en douce rendrait le calcul invérifiable.
+    review: reviewTargets({
+      targets: t,
+      goal: computed.inputs?.goal,
+      leanMassKg: computed.inputs?.lean_mass_kg,
+      weightKg: computed.inputs?.weight_kg,
+    }),
+    // Le lien avec l'entraînement. Le multiplicateur d'activité inclut
+    // déjà les séances : on ne rajoute aucune calorie, on confronte le
+    // déclaré au réalisé et on répartit le total à somme constante.
+    training: {
+      ...training,
+      day_type: dayType,
+      load,
+      split: computed.split,
+      activity: {
+        ...reviewActivity({ declared: computed.inputs?.activity, load }),
+        kcal_hint: multiplierDriftKcal(
+          computed.breakdown?.bmr,
+          computed.inputs?.activity,
+          reviewActivity({ declared: computed.inputs?.activity, load }).observed,
+        ),
+      },
+    },
   });
 }));
 
@@ -467,5 +648,258 @@ nutritionRouter.get('/history', asyncHandler(async (req, res) => {
       price_eur: avg('price_eur'),
     },
     days_logged: nutrition.rows.length,
+  });
+}));
+
+// =====================================================================
+// Recettes et suggestions
+//
+// Le journal sait compter ce qui a été mangé ; il ne sait rien proposer.
+// Ces routes comblent ce trou : des plats composés d'aliments du
+// catalogue, classés selon ce qu'il RESTE à manger dans la journée.
+// =====================================================================
+
+const RECIPE_FIELDS = `
+  r.id, r.slug, r.name, r.meals, r.servings, r.prep_minutes, r.tags,
+  r.steps, r.note, r.source, r.user_id,
+  m.kcal, m.protein_g, m.carbs_g, m.fat_g, m.fiber_g, m.price_eur,
+  m.ingredient_count
+`;
+
+/** Recettes visibles : catalogue commun + recettes personnelles. */
+const RECIPE_SCOPE = '(r.user_id IS NULL OR r.user_id = $1)';
+
+/** Ingrédients d'une recette, dans l'ordre. */
+async function loadIngredients(recipeId) {
+  const { rows } = await query(
+    `SELECT ri.id, ri.quantity, ri.position, ri.optional,
+            f.id AS food_id, f.name, f.brand, f.category, f.image_url,
+            f.reference_qty, f.unit,
+            -- Macros DE LA QUANTITÉ utilisée, pas de la référence : la
+            -- conversion refaite côté client divergerait de la vue.
+            (f.kcal      * ri.quantity / f.reference_qty)::numeric(8,2) AS kcal,
+            (f.protein_g * ri.quantity / f.reference_qty)::numeric(8,2) AS protein_g,
+            (f.carbs_g   * ri.quantity / f.reference_qty)::numeric(8,2) AS carbs_g,
+            (f.fat_g     * ri.quantity / f.reference_qty)::numeric(8,2) AS fat_g,
+            (f.fiber_g   * ri.quantity / f.reference_qty)::numeric(8,2) AS fiber_g,
+            (f.price_eur * ri.quantity / f.reference_qty)::numeric(8,3) AS price_eur
+       FROM recipe_ingredients ri
+       JOIN foods f ON f.id = ri.food_id
+      WHERE ri.recipe_id = $1
+      ORDER BY ri.position`,
+    [recipeId],
+  );
+  return rows;
+}
+
+/**
+ * GET /api/nutrition/recipes
+ * Filtres : meal, q, tag, max_kcal, min_protein
+ */
+nutritionRouter.get('/recipes', asyncHandler(async (req, res) => {
+  const userId = userOf(req);
+  const {
+    meal, q, tag, max_kcal: maxKcal, min_protein: minProtein,
+  } = req.query;
+
+  if (meal && !MEALS.includes(String(meal))) {
+    throw badRequest(`Repas inconnu : ${meal}. Attendu : ${MEALS.join(', ')}`);
+  }
+
+  const conditions = [RECIPE_SCOPE];
+  const params = [userId];
+  const add = (sql, value) => {
+    params.push(value);
+    conditions.push(sql.replace('?', `$${params.length}`));
+  };
+
+  if (meal) add('?::meal_slot = ANY(r.meals)', meal);
+  if (tag) add('? = ANY(r.tags)', tag);
+  if (q) add('immutable_unaccent(lower(r.name)) LIKE immutable_unaccent(lower(?))', `%${q}%`);
+  if (maxKcal) add('m.kcal <= ?', Number(maxKcal));
+  if (minProtein) add('m.protein_g >= ?', Number(minProtein));
+
+  const { rows } = await query(
+    `SELECT ${RECIPE_FIELDS}
+       FROM recipes r
+       JOIN recipe_macros m ON m.recipe_id = r.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY m.protein_g DESC, r.name`,
+    params,
+  );
+
+  const { rows: tags } = await query(
+    `SELECT DISTINCT unnest(r.tags) AS tag FROM recipes r
+      WHERE ${RECIPE_SCOPE} ORDER BY 1`,
+    [userId],
+  );
+
+  res.json({ total: rows.length, tags: tags.map((x) => x.tag), items: rows });
+}));
+
+/** GET /api/nutrition/recipes/:id — fiche complète avec ingrédients. */
+nutritionRouter.get('/recipes/:id', asyncHandler(async (req, res) => {
+  const userId = userOf(req);
+  const { rows } = await query(
+    `SELECT ${RECIPE_FIELDS}
+       FROM recipes r
+       JOIN recipe_macros m ON m.recipe_id = r.id
+      WHERE r.id = $2 AND ${RECIPE_SCOPE}`,
+    [userId, req.params.id],
+  );
+  if (!rows.length) throw notFound('Recette introuvable');
+
+  res.json({ ...rows[0], ingredients: await loadIngredients(req.params.id) });
+}));
+
+/**
+ * GET /api/nutrition/suggestions?meal=&date=
+ *
+ * Classe les recettes du repas demandé selon ce qu'il RESTE à manger.
+ * Une suggestion qui ignore le journal du jour n'est qu'un livre de
+ * cuisine : celle-ci part du budget restant et du nombre de repas encore
+ * à prendre.
+ */
+nutritionRouter.get('/suggestions', asyncHandler(async (req, res) => {
+  const userId = userOf(req);
+  const meal = String(req.query.meal ?? 'midi');
+  const date = req.query.date ?? null;
+
+  if (!MEALS.includes(meal)) {
+    throw badRequest(`Repas inconnu : ${meal}. Attendu : ${MEALS.join(', ')}`);
+  }
+
+  const [targetsResult, totals, byMeal, profile, recipes] = await Promise.all([
+    targetsFor(userId),
+    query(
+      `SELECT kcal, protein_g, carbs_g, fat_g, fiber_g FROM nutrition_daily
+        WHERE user_id = $1 AND consumed_on = COALESCE($2::date, CURRENT_DATE)`,
+      [userId, date],
+    ),
+    query(
+      `SELECT meal FROM nutrition_daily_by_meal
+        WHERE user_id = $1 AND consumed_on = COALESCE($2::date, CURRENT_DATE)`,
+      [userId, date],
+    ),
+    resolveBodyProfile(userId),
+    query(
+      `SELECT ${RECIPE_FIELDS}
+         FROM recipes r
+         JOIN recipe_macros m ON m.recipe_id = r.id
+        WHERE ${RECIPE_SCOPE} AND $2::meal_slot = ANY(r.meals)`,
+      [userId, meal],
+    ),
+  ]);
+
+  const targets = targetsResult.targets;
+  if (!targets) {
+    throw badRequest(
+      'Aucune cible calculée : renseigne ton poids et ta taille dans le profil.',
+    );
+  }
+
+  const consumed = totals.rows[0] ?? {};
+  const remaining = {
+    kcal: targets.kcal - Number(consumed.kcal ?? 0),
+    protein_g: targets.protein_g - Number(consumed.protein_g ?? 0),
+    carbs_g: targets.carbs_g - Number(consumed.carbs_g ?? 0),
+    fat_g: targets.fat_g - Number(consumed.fat_g ?? 0),
+    fiber_g: targets.fiber_g - Number(consumed.fiber_g ?? 0),
+  };
+
+  // Repas encore à prendre, celui-ci compris. Un repas déjà renseigné
+  // est considéré comme pris : sans cela, le budget du dîner serait
+  // calculé comme s'il restait un petit-déjeuner à manger.
+  const taken = new Set(byMeal.rows.map((x) => x.meal));
+  const mealsLeft = MEALS.filter((x) => x === meal || !taken.has(x)).length;
+
+  const suggestions = suggestMeals({
+    recipes: recipes.rows,
+    remaining,
+    mealsLeft,
+    bodyweightKg: profile?.body?.weight_kg ?? null,
+    limit: Number(req.query.limit) || 6,
+  });
+
+  res.json({
+    meal,
+    date: date ?? new Date().toISOString().slice(0, 10),
+    remaining,
+    ...suggestions,
+    sources: [
+      { key: 'schoenfeld2018distribution', ...NUTRITION_REFERENCES.schoenfeld2018distribution },
+    ],
+  });
+}));
+
+/**
+ * POST /api/nutrition/entries/recipe
+ * Corps : { recipe_id, meal, portion, consumed_on }
+ *
+ * Enregistre les INGRÉDIENTS, pas la recette : le journal reste une
+ * liste d'aliments, et supprimer une recette du catalogue ne doit pas
+ * effacer ce qui a été mangé.
+ */
+nutritionRouter.post('/entries/recipe', asyncHandler(async (req, res) => {
+  const userId = userOf(req);
+  const {
+    recipe_id: recipeId, meal, portion = 1, consumed_on: consumedOn,
+  } = req.body ?? {};
+
+  if (!recipeId) throw badRequest('recipe_id est requis');
+  if (!meal || !MEALS.includes(meal)) {
+    throw badRequest(`meal est requis et doit valoir : ${MEALS.join(', ')}`);
+  }
+  if (!(portion > 0 && portion <= 10)) {
+    throw badRequest('portion doit être comprise entre 0 (exclu) et 10');
+  }
+
+  const inserted = await withTransaction(async (client) => {
+    const { rows: [recipe] } = await client.query(
+      `SELECT r.id, r.name, r.servings FROM recipes r
+        WHERE r.id = $2 AND (r.user_id IS NULL OR r.user_id = $1)`,
+      [userId, recipeId],
+    );
+    if (!recipe) throw notFound('Recette introuvable');
+
+    const ingredients = await loadIngredients(recipeId);
+    if (!ingredients.length) throw badRequest('Cette recette n’a aucun ingrédient');
+
+    const rows = [];
+    for (const ing of ingredients) {
+      // `loadIngredients` rend déjà les macros DE LA QUANTITÉ inscrite
+      // dans la recette, pour `servings` portions. Passer à `portion`
+      // portions est donc une simple règle de trois — refaire la
+      // conversion depuis `reference_qty` la ferait deux fois.
+      const factor = portion / recipe.servings;
+      const scale = (v) => Math.round(Number(v ?? 0) * factor * 100) / 100;
+
+      const { rows: [row] } = await client.query(
+        `INSERT INTO food_entries
+           (user_id, consumed_on, meal, food_id, food_name, quantity, unit,
+            kcal, fat_g, carbs_g, protein_g, fiber_g, price_eur, note)
+         VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6, $7,
+                 $8, $9, $10, $11, $12, $13, $14)
+         RETURNING id, food_name, quantity, unit, kcal, protein_g`,
+        [
+          userId, consumedOn ?? null, meal, ing.food_id, ing.name,
+          scale(ing.quantity), ing.unit,
+          scale(ing.kcal), scale(ing.fat_g), scale(ing.carbs_g),
+          scale(ing.protein_g), scale(ing.fiber_g),
+          ing.price_eur == null ? null : scale(ing.price_eur),
+          // La note rattache la ligne à sa recette : sans elle, le
+          // journal affiche six aliments sans dire qu'ils forment un plat.
+          `${recipe.name}${portion === 1 ? '' : ` · ${portion} portion(s)`}`,
+        ],
+      );
+      rows.push(row);
+    }
+    return { recipe, rows };
+  });
+
+  res.status(201).json({
+    recipe: inserted.recipe.name,
+    entries: inserted.rows.length,
+    items: inserted.rows,
   });
 }));

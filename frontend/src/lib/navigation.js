@@ -16,46 +16,19 @@
 // une salle de contrôle. Dix onglets au même rang obligeaient à lire
 // toute la barre pour trouver un bouton de saisie.
 
-export const SECTIONS = [
-  {
-    key: 'entrainement',
-    label: 'Entraînement',
-    icon: '🏋️',
-    pages: [
-      { key: 'seance', label: 'Séance', hint: 'Enregistrer une séance en cours' },
-      { key: 'programme', label: 'Programme', hint: 'Plan hebdomadaire généré depuis le radar' },
-      { key: 'exercices', label: 'Exercices', hint: 'Catalogue, muscles sollicités et exécution' },
-    ],
-  },
-  {
-    key: 'nutrition',
-    label: 'Nutrition',
-    icon: '🍽️',
-    pages: [
-      { key: 'journal', label: 'Journal', hint: 'Repas du jour et macros restantes' },
-      { key: 'aliments', label: 'Aliments', hint: 'Catalogue, macros et prix' },
-    ],
-  },
-  {
-    key: 'progression',
-    label: 'Progression',
-    icon: '📈',
-    pages: [
-      { key: 'apercu', label: 'Aperçu', hint: 'Radar, charge musculaire et readiness' },
-      { key: 'tendances', label: 'Tendances', hint: 'Courbes de composition, calories et volume' },
-      { key: 'benchmark', label: 'Benchmark', hint: 'Paliers de force et charge du palier suivant' },
-      { key: 'sante', label: 'Santé', hint: 'Sommeil, VFC, pas — depuis tes capteurs' },
-    ],
-  },
-  {
-    key: 'profil',
-    label: 'Profil',
-    icon: '⚙️',
-    pages: [
-      { key: 'profil', label: 'Profil', hint: 'Mesures, objectifs et méthode de calcul' },
-    ],
-  },
-];
+import { ALL_SECTIONS, MODULES, moduleOf } from './modules.js';
+
+/**
+ * Les sections, à plat.
+ *
+ * Elles ne sont plus déclarées ici : elles appartiennent désormais aux
+ * MODULES (`modules.js`). L'URL reste `#/section/page` et ne connaît
+ * pas les modules — c'est ce qui permet d'en ajouter un sans casser un
+ * seul lien existant.
+ */
+export const SECTIONS = ALL_SECTIONS;
+
+export { MODULES, moduleOf };
 
 /**
  * Route par défaut selon le contexte d'usage.
