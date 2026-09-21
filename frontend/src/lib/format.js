@@ -26,3 +26,14 @@ export const euros = (v) => (v == null ? '—' : `${round2(v)} €`);
 
 /** Nombre avec séparateur de milliers français. */
 export const thousands = (v) => Math.round(Number(v ?? 0)).toLocaleString('fr-FR');
+
+/**
+ * Nombre en écriture française : virgule décimale, pas de zéro inutile.
+ *
+ * `toLocaleString('fr-FR')` insère aussi une espace fine de millier, que
+ * l'on ne veut PAS sur un décompte de séries : « 1 2,5 » se lit mal.
+ */
+export const dec = (v) => {
+  const n = Number(v ?? 0);
+  return Number.isInteger(n) ? String(n) : String(n).replace('.', ',');
+};

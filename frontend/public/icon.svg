@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Icone d'application. Tracee, comme tout le reste de l'interface :
+       aplats, angles francs, aucun degrade. Le carre rouge penche porte
+       un halterophile stylise. -->
+  <rect width="512" height="512" fill="#0a0a0b"/>
+  <g transform="translate(256 256) skewX(-8) translate(-256 -256)">
+    <rect x="52" y="96" width="408" height="320" fill="#e4002b"/>
+  </g>
+  <g fill="#ffffff" transform="translate(256 262) scale(4.2) translate(-32 -33)">
+    <path d="M6 26 L14 26 L14 20 L22 20 L22 44 L14 44 L14 38 L6 38 Z"/>
+    <path d="M22 28 L42 28 L42 36 L22 36 Z"/>
+    <path d="M42 20 L50 20 L50 26 L58 26 L58 38 L50 38 L50 44 L42 44 Z"/>
+  </g>
+</svg>

@@ -8,11 +8,19 @@ import { pool } from './db.js';
 import { HttpError } from './lib/http.js';
 import { exercisesRouter } from './routes/exercises.js';
 import { workoutsRouter } from './routes/workouts.js';
+import { sportsRouter } from './routes/sports.js';
+import { weatherRouter } from './routes/weather.js';
+import { appsRouter } from './routes/apps.js';
+import { placesRouter } from './routes/places.js';
+import { notesRouter } from './routes/notes.js';
+import { tilesRouter } from './routes/tiles.js';
 import { healthRouter } from './routes/health.js';
 import { statsRouter } from './routes/stats.js';
 import { programsRouter } from './routes/programs.js';
 import { nutritionRouter } from './routes/nutrition.js';
 import { profileRouter } from './routes/profile.js';
+import { calendarRouter } from './routes/calendar.js';
+import { exportRouter } from './routes/export.js';
 
 export function createApp() {
   const app = express();
@@ -56,10 +64,18 @@ export function createApp() {
 
   app.use('/api/exercises', exercisesRouter);
   app.use('/api/workouts', workoutsRouter);
+  app.use('/api/sports', sportsRouter);
+  app.use('/api/weather', weatherRouter);
+  app.use('/api/apps', appsRouter);
+  app.use('/api/places', placesRouter);
+  app.use('/api/notes', notesRouter);
+  app.use('/api/tiles', tilesRouter);
   app.use('/api/stats', statsRouter);
   app.use('/api/programs', programsRouter);
   app.use('/api/nutrition', nutritionRouter);
   app.use('/api/profile', profileRouter);
+  app.use('/api/calendar', calendarRouter);
+  app.use('/api/export', exportRouter);
   // healthRouter porte /api/health-sync et /api/health/*
   app.use('/api', healthRouter);
 

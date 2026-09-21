@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import AthleticRadar from '../components/AthleticRadar.jsx';
 import BodyMap from '../components/BodyMap.jsx';
 import ReadinessCard from '../components/ReadinessCard.jsx';
+import AdherenceCard from '../components/AdherenceCard.jsx';
 import HydrationCard from '../components/HydrationCard.jsx';
 
 /**
@@ -70,6 +71,10 @@ export default function Dashboard() {
         </div>
         <div className="grid">
           <ReadinessCard data={readiness} />
+          {/* L'adhérence explique ce que le radar ne dit pas : un score
+              qui stagne malgré un bon programme vient le plus souvent de
+              séances non faites, pas d'un mauvais dosage. */}
+          <AdherenceCard />
           <HydrationCard />
           <StrengthDetails radar={radar} />
         </div>

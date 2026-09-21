@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import {
   SECTIONS, findRoute, parseHash, toHash, defaultRoute, allRoutes,
 } from '../src/lib/navigation.js';
+import { MODULES, keyCollisions } from '../src/lib/modules.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 let problems = 0;
@@ -111,6 +112,24 @@ console.log('\n=== Routage ===');
     if (!findRoute(d.section, d.page)) fail('route par défaut invalide');
   }
   ok('routes par défaut valides et adaptées au contexte');
+}
+
+console.log('\n=== Modules ===');
+{
+  if (MODULES.length > 0) ok('au moins un module déclaré');
+  else fail('aucun module déclaré');
+
+  const complete = MODULES.every((m) => m.label && m.glyph && m.sections.length > 0);
+  if (complete) ok('chaque module a libellé, pictogramme et sections');
+  else fail('un module est incomplet');
+
+  // L'URL est `#/section/page` et ne porte PAS le module : deux
+  // sections homonymes dans deux modules produiraient la même adresse,
+  // et l'une des deux deviendrait inatteignable. Ce contrôle est la
+  // seule chose qui empêche cette collision silencieuse.
+  const collisions = keyCollisions();
+  if (collisions.length === 0) ok('aucune collision de clé entre modules');
+  else fail(`collisions de clés : ${collisions.join(' | ')}`);
 }
 
 console.log(problems ? `\n=== ${problems} PROBLÈME(S) ===` : '\n=== NAVIGATION VALIDE ===');

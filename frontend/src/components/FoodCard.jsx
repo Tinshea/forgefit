@@ -9,6 +9,8 @@
  * deux secondes à charger.
  */
 
+import { round1 } from '../lib/format.js';
+
 export const CATEGORY_META = {
   feculents: { icon: '🌾', label: 'Féculents', color: 'var(--warning)' },
   proteines: { icon: '🍗', label: 'Protéines', color: 'var(--critical)' },

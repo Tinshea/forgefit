@@ -1,8 +1,82 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db.js';
 import { asyncHandler, badRequest, notFound, userOf } from '../lib/http.js';
+import { SPORTS, getSport } from '../services/sports.js';
+import { sessionLoad, describeSessionLoad } from '../services/session-load.js';
 
 export const workoutsRouter = Router();
+
+/**
+ * Colonnes de séance renvoyées partout.
+ *
+ * La durée et la charge sont calculées EN BASE : les recalculer dans
+ * chaque route ferait diverger l'historique, le calendrier et le bilan
+ * de charge à la première correction d'arrondi.
+ */
+const SESSION_METRICS = `
+  s.sport_key, s.distance_m, s.elevation_m, s.rounds, s.ascents,
+  CASE WHEN s.ended_at IS NOT NULL
+       THEN ROUND(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60.0)::int
+  END AS duration_min
+`;
+
+/** Valide et normalise les champs propres au sport pratiqué. */
+function readSportFields(body = {}) {
+  const {
+    sport_key: sportKey, distance_m: distanceM, elevation_m: elevationM,
+    rounds, ascents,
+  } = body;
+
+  if (sportKey != null && sportKey !== '' && !SPORTS[sportKey]) {
+    throw badRequest(`Sport inconnu : ${sportKey}`);
+  }
+
+  const num = (v, name, { min = 0, max = Infinity } = {}) => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw badRequest(`${name} doit être un nombre`);
+    if (n < min || n > max) {
+      throw badRequest(`${name} doit être compris entre ${min} et ${max}`);
+    }
+    return n;
+  };
+
+  return {
+    sportKey: sportKey === '' ? null : (sportKey ?? null),
+    distanceM: num(distanceM, 'distance_m', { max: 1_000_000 }),
+    // Le dénivelé négatif est légitime : une descente n'est pas une
+    // faute de saisie.
+    elevationM: num(elevationM, 'elevation_m', { min: -10_000, max: 30_000 }),
+    rounds: num(rounds, 'rounds', { max: 200 }),
+    ascents: num(ascents, 'ascents', { max: 500 }),
+  };
+}
+
+/** Enrichit une ligne de séance : sport, charge de Foster, lecture. */
+export function decorateSession(row) {
+  if (!row) return row;
+  const sport = row.sport_key ? getSport(row.sport_key) : null;
+  const minutes = row.duration_min ?? null;
+  const load = sessionLoad({ rpe: row.perceived_exertion, minutes });
+
+  return {
+    ...row,
+    sport: sport
+      ? {
+        key: sport.key,
+        label: sport.label,
+        category: sport.category,
+        category_label: sport.category_meta?.label ?? null,
+        icon: sport.category_meta?.icon ?? null,
+      }
+      : null,
+    duration_min: minutes,
+    // Null tant que la séance n'est pas close ou que le RPE manque : un
+    // zéro laisserait croire à une séance sans effort.
+    session_load: load,
+    load_label: load ? describeSessionLoad(load)?.label : null,
+  };
+}
 
 
 /** GET /api/workouts — sessions recentes avec resume. */
@@ -11,7 +85,8 @@ workoutsRouter.get('/', asyncHandler(async (req, res) => {
 
   const { rows } = await query(
     `SELECT s.id, s.title, s.started_at, s.ended_at, s.notes,
-            s.perceived_exertion,
+            s.perceived_exertion, s.program_day_id,
+            ${SESSION_METRICS},
             COUNT(ws.id)::int                       AS set_count,
             COALESCE(SUM(ws.volume_kg), 0)::numeric AS volume_kg,
             COUNT(DISTINCT ws.exercise_id)::int     AS exercise_count
@@ -24,27 +99,116 @@ workoutsRouter.get('/', asyncHandler(async (req, res) => {
     [userOf(req), limit],
   );
 
-  res.json({ items: rows });
+  res.json({ items: rows.map(decorateSession) });
 }));
 
-/** POST /api/workouts — ouvre une seance. */
+/**
+ * POST /api/workouts — ouvre une seance.
+ *
+ * `program_day_id` rattache la seance au jour de programme qu'elle
+ * execute. C'est ce lien qui permet au calendrier de dire si le plan a
+ * ete suivi, et au mode Terrain de guider la seance.
+ */
 workoutsRouter.post('/', asyncHandler(async (req, res) => {
-  const { title, notes, started_at: startedAt } = req.body ?? {};
+  const {
+    title, notes, started_at: startedAt, program_day_id: programDayId,
+    perceived_exertion: rpe,
+    // Une séance de sport se saisit APRÈS coup : on ne sort pas son
+    // téléphone entre deux rounds ni au milieu d'un match. La créer
+    // déjà close évite un aller-retour et, surtout, évite de laisser
+    // une séance ouverte si la seconde requête échoue.
+    ended_at: endedAt,
+  } = req.body ?? {};
+
+  if (endedAt && startedAt && new Date(endedAt) < new Date(startedAt)) {
+    throw badRequest('La fin de séance ne peut pas précéder son début');
+  }
+
+  const fields = readSportFields(req.body ?? {});
+  const userId = userOf(req);
+  let resolvedTitle = title ?? null;
+
+  // Un sport nommé fournit le titre par défaut : « Escalade en voie »
+  // en dit plus que « Séance du 21/09 » trois mois plus tard.
+  if (!resolvedTitle && fields.sportKey) {
+    resolvedTitle = SPORTS[fields.sportKey].label;
+  }
+
+  if (programDayId) {
+    // Le jour doit appartenir a un programme de CET utilisateur : sans
+    // cette verification, n'importe quel identifiant rattacherait une
+    // seance au programme d'un autre.
+    const { rows } = await query(
+      `SELECT d.id, d.title
+         FROM program_days d
+         JOIN programs p ON p.id = d.program_id
+        WHERE d.id = $1 AND p.user_id = $2`,
+      [programDayId, userId],
+    );
+    if (!rows.length) throw badRequest('Jour de programme introuvable');
+    // Le titre du jour de programme vaut mieux qu'une date : on sait ce
+    // qu'on a fait en relisant l'historique.
+    resolvedTitle = resolvedTitle ?? rows[0].title;
+  }
 
   const { rows } = await query(
-    `INSERT INTO workout_sessions (user_id, title, notes, started_at)
-     VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()))
-     RETURNING id, title, started_at, notes`,
-    [userOf(req), title ?? null, notes ?? null, startedAt ?? null],
+    `INSERT INTO workout_sessions
+       (user_id, title, notes, started_at, program_day_id,
+        sport_key, distance_m, elevation_m, rounds, ascents, perceived_exertion,
+        ended_at)
+     VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()), $5,
+             $6, $7, $8, $9, $10, $11::smallint, $12::timestamptz)
+     RETURNING id, title, started_at, ended_at, notes, program_day_id,
+               perceived_exertion, sport_key, distance_m, elevation_m,
+               rounds, ascents,
+               CASE WHEN ended_at IS NOT NULL
+                    THEN ROUND(EXTRACT(EPOCH FROM (ended_at - started_at)) / 60.0)::int
+               END AS duration_min`,
+    [
+      userId, resolvedTitle, notes ?? null, startedAt ?? null, programDayId ?? null,
+      fields.sportKey, fields.distanceM, fields.elevationM,
+      fields.rounds, fields.ascents, rpe ?? null, endedAt ?? null,
+    ],
   );
 
-  res.status(201).json(rows[0]);
+  res.status(201).json(decorateSession(rows[0]));
+}));
+
+/**
+ * GET /api/workouts/open — la seance en cours, s'il y en a une.
+ *
+ * Le mode Terrain vit sur un telephone : l'onglet se ferme, l'ecran se
+ * verrouille, l'application est dechargee entre deux series. Sans cette
+ * route, revenir sur la page ouvrirait une SECONDE seance et couperait
+ * l'historique en deux.
+ *
+ * Declaree avant `/:id`, qui capturerait sinon « open ».
+ */
+workoutsRouter.get('/open', asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    `SELECT id FROM workout_sessions
+      WHERE user_id = $1 AND ended_at IS NULL
+      ORDER BY started_at DESC LIMIT 1`,
+    [userOf(req)],
+  );
+  if (!rows.length) return res.json(null);
+  return res.json(await loadSession(rows[0].id, userOf(req)));
 }));
 
 /** GET /api/workouts/:id — seance detaillee. */
 workoutsRouter.get('/:id', asyncHandler(async (req, res) => {
+  const session = await loadSession(req.params.id, userOf(req));
+  if (!session) throw notFound('Séance introuvable');
+  res.json(session);
+}));
+
+/** Seance complete : series enregistrees + plan du jour de programme. */
+async function loadSession(id, userId) {
   const { rows } = await query(
     `SELECT s.*,
+            CASE WHEN s.ended_at IS NOT NULL
+                 THEN ROUND(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60.0)::int
+            END AS duration_min,
             COALESCE(
               json_agg(
                 json_build_object(
@@ -70,30 +234,99 @@ workoutsRouter.get('/:id', asyncHandler(async (req, res) => {
        LEFT JOIN exercises e     ON e.id = ws.exercise_id
       WHERE s.id = $1 AND s.user_id = $2
       GROUP BY s.id`,
-    [req.params.id, userOf(req)],
+    [id, userId],
   );
 
-  if (!rows.length) throw notFound('Séance introuvable');
-  res.json(rows[0]);
-}));
+  if (!rows.length) return null;
+
+  // Le plan du jour, quand la seance en execute un. Sans lui, le mode
+  // Terrain ne peut ni preremplir les cibles ni dire ce qu'il reste a
+  // faire : il faudrait garder son programme ouvert a cote.
+  const plan = await loadDayPlan(rows[0].program_day_id);
+  return { ...decorateSession(rows[0]), plan };
+}
+
+/**
+ * Plan d'un jour de programme, avec le materiel d'affichage.
+ *
+ * Renvoie `null` pour une seance libre : c'est un cas normal, pas une
+ * erreur — on peut s'entrainer sans programme.
+ */
+async function loadDayPlan(programDayId) {
+  if (!programDayId) return null;
+
+  const { rows } = await query(
+    `SELECT d.id, d.title, d.focus, d.weekday, d.day_index,
+            p.id AS program_id, p.name AS program_name,
+            COALESCE(
+              json_agg(
+                json_build_object(
+                  'id', i.id,
+                  'position', i.position,
+                  'exercise_id', e.id,
+                  'name_fr', e.name_fr,
+                  'gif_url', e.gif_url,
+                  'image_url', e.image_url,
+                  'target', e.target,
+                  'discipline', e.discipline,
+                  'equipment', e.equipment,
+                  'evidence_tier', e.evidence_tier::text,
+                  'movement_pattern', e.movement_pattern,
+                  'target_sets', i.target_sets,
+                  'target_reps', i.target_reps,
+                  'target_reps_max', i.target_reps_max,
+                  'target_seconds', i.target_seconds,
+                  'suggested_kg', i.suggested_kg,
+                  'rest_seconds', i.rest_seconds,
+                  'note', i.note,
+                  'rationale', i.rationale
+                ) ORDER BY i.position
+              ) FILTER (WHERE i.id IS NOT NULL),
+              '[]'::json
+            ) AS items
+       FROM program_days d
+       JOIN programs p            ON p.id = d.program_id
+       LEFT JOIN program_items i  ON i.program_day_id = d.id
+       LEFT JOIN exercises e      ON e.id = i.exercise_id
+      WHERE d.id = $1
+      GROUP BY d.id, p.id`,
+    [programDayId],
+  );
+
+  return rows[0] ?? null;
+}
 
 /** PATCH /api/workouts/:id — cloture / annotation. */
 workoutsRouter.patch('/:id', asyncHandler(async (req, res) => {
   const { ended_at: endedAt, notes, perceived_exertion: rpe, title } = req.body ?? {};
+  const fields = readSportFields(req.body ?? {});
 
   const { rows } = await query(
-    `UPDATE workout_sessions
-        SET ended_at           = COALESCE($3::timestamptz, ended_at),
-            notes              = COALESCE($4, notes),
-            perceived_exertion = COALESCE($5::smallint, perceived_exertion),
-            title              = COALESCE($6, title)
-      WHERE id = $1 AND user_id = $2
-      RETURNING *`,
-    [req.params.id, userOf(req), endedAt ?? null, notes ?? null, rpe ?? null, title ?? null],
+    `UPDATE workout_sessions AS s
+        SET ended_at           = COALESCE($3::timestamptz, s.ended_at),
+            notes              = COALESCE($4, s.notes),
+            perceived_exertion = COALESCE($5::smallint, s.perceived_exertion),
+            title              = COALESCE($6, s.title),
+            sport_key          = COALESCE($7, s.sport_key),
+            distance_m         = COALESCE($8, s.distance_m),
+            elevation_m        = COALESCE($9, s.elevation_m),
+            rounds             = COALESCE($10, s.rounds),
+            ascents            = COALESCE($11, s.ascents)
+      WHERE s.id = $1 AND s.user_id = $2
+      RETURNING s.*,
+                CASE WHEN s.ended_at IS NOT NULL
+                     THEN ROUND(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60.0)::int
+                END AS duration_min`,
+    [
+      req.params.id, userOf(req), endedAt ?? null, notes ?? null,
+      rpe ?? null, title ?? null,
+      fields.sportKey, fields.distanceM, fields.elevationM,
+      fields.rounds, fields.ascents,
+    ],
   );
 
   if (!rows.length) throw notFound('Séance introuvable');
-  res.json(rows[0]);
+  res.json(decorateSession(rows[0]));
 }));
 
 /**
@@ -145,6 +378,23 @@ workoutsRouter.post('/:id/sets', asyncHandler(async (req, res) => {
   });
 
   res.status(201).json(row);
+}));
+
+/**
+ * DELETE /api/workouts/:id — supprime une seance entiere.
+ *
+ * Une seance ouverte par erreur apparait au calendrier et fausse les
+ * statistiques ; il faut pouvoir la retirer. Les series partent en
+ * cascade, et `program_day_id` n'etant qu'une reference, le programme
+ * n'est pas touche.
+ */
+workoutsRouter.delete('/:id', asyncHandler(async (req, res) => {
+  const { rowCount } = await query(
+    'DELETE FROM workout_sessions WHERE id = $1 AND user_id = $2',
+    [req.params.id, userOf(req)],
+  );
+  if (!rowCount) throw notFound('Séance introuvable');
+  res.status(204).end();
 }));
 
 /** DELETE /api/workouts/:id/sets/:setId */

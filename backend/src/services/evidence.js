@@ -142,6 +142,25 @@ export const GOALS = {
 };
 
 /**
+ * Endurance : repères d'activité physique.
+ *
+ * Ce ne sont pas des repères de performance mais de SANTÉ. Ils valent
+ * pour l'activité modérée cumulée — marche comprise —, pas seulement
+ * pour les séances déclarées comme telles.
+ */
+export const AEROBIC = {
+  // Plancher hebdomadaire, en minutes d'intensité modérée.
+  weeklyMinutesFloor: 150,
+  weeklyMinutesUpper: 300,
+  // Équivalence : une minute d'intensité vigoureuse en vaut deux de
+  // modérée. C'est la conversion retenue par les recommandations.
+  vigorousEquivalence: 2,
+  source: 'OMS (2020), Lignes directrices sur l’activité physique et la sédentarité — '
+    + '150 à 300 min d’activité modérée par semaine, ou 75 à 150 min d’activité '
+    + 'vigoureuse, et un renforcement musculaire ≥ 2 jours par semaine',
+};
+
+/**
  * Dosage du travail chronométré (mobilité, souplesse).
  *
  * L'étirement statique produit son effet par le temps cumulé sous
@@ -164,4 +183,5 @@ export const SOURCES = [
   { claim: 'Repos inter-séries selon l’objectif', source: REST.source },
   { claim: 'Arrêt des séries à 1–3 répétitions de la réserve', source: PROXIMITY_TO_FAILURE.source },
   { claim: 'Dosage du travail d’amplitude', source: TIMED_WORK.source },
+  { claim: 'Volume hebdomadaire d’endurance (150–300 min modérées)', source: AEROBIC.source },
 ];

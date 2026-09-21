@@ -107,7 +107,7 @@ export default function BodyMap({ data }) {
             </div>
           ) : (
             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
-              Survole ou sélectionne un muscle pour le détail.
+              Touche un muscle — ou survole-le — pour le détail.
               {data?.trained_muscles
                 ? ` ${data.trained_muscles} groupes travaillés sur 14 jours.`
                 : ''}

@@ -14,6 +14,8 @@ import { translateExerciseName, slugify } from '../lib/translate-fr.js';
 import {
   classifyDiscipline, classifyAxis, normalizeMuscle, normalizeSecondary,
 } from '../lib/classify.js';
+import { applySchemaUpdates } from '../db/schema-updates.js';
+import { applyCuration } from '../services/curation.js';
 
 const args = process.argv.slice(2);
 const hasFlag = (f) => args.includes(f);
@@ -169,6 +171,9 @@ async function main() {
   }
 
   await waitForDatabase();
+  // Les colonnes de curation peuvent manquer si l'ingestion tourne avant
+  // le premier demarrage de l'API (c'est le cas au premier boot).
+  await applySchemaUpdates();
 
   let written = 0;
   await withTransaction(async (client) => {
@@ -185,6 +190,18 @@ async function main() {
   });
 
   console.log(`\n[ingest] termine : ${written} exercices enregistres.`);
+
+  // Le catalogue cure s'applique dans la foulee : un catalogue ingere
+  // mais non classe n'alimenterait ni les modeles de programme ni les
+  // filtres de fiabilite.
+  const { matched, missing } = await applyCuration();
+  console.log(`[ingest] curation : ${matched} exercices classes.`);
+  if (missing.length) {
+    console.warn(
+      `[ingest] curation : ${missing.length} identifiant(s) absent(s) du dataset : `
+      + missing.join(', '),
+    );
+  }
 }
 
 main()

@@ -10,8 +10,10 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "ingest": "node src/scripts/ingest.js",
+    "curate": "node src/scripts/curate.js",
     "seed:demo": "node src/scripts/seed-demo.js",
     "seed:foods": "node src/scripts/seed-foods.js",
+    "seed:recipes": "node src/scripts/seed-recipes.js",
     "import:health": "node src/scripts/import-apple-health.js",
     "test": "node --test \"test/*.test.js\"",
     "test:e2e": "node test/integration.js"

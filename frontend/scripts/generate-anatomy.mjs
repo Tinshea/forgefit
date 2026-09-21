@@ -223,8 +223,25 @@ export const BACK_KEYS = new Set(BACK.flatMap((r) => r.keys));
 /**
  * Vue qui montre le mieux un ensemble de muscles.
  * Un tirage se lit de dos, un développé de face.
+ *
+ * Le PREMIER muscle de la liste est le principal, et il prime : une
+ * traction compte trois muscles visibles de face (biceps, avant-bras)
+ * contre un seul de dos, si bien qu'un simple décompte affichait la
+ * face — où les dorsaux, muscle principal du mouvement, n'apparaissent
+ * pas du tout. Une figure qui n'allume pas le muscle travaillé est pire
+ * qu'aucune figure.
  */
 export function bestViewFor(muscles = []) {
+  const [primary] = muscles;
+  if (primary) {
+    const onFront = FRONT_KEYS.has(primary);
+    const onBack = BACK_KEYS.has(primary);
+    // Visible d'un seul côté : le choix est fait, quoi que disent les
+    // secondaires.
+    if (onBack && !onFront) return 'back';
+    if (onFront && !onBack) return 'front';
+  }
+
   let front = 0;
   let back = 0;
   for (const m of muscles) {

@@ -11,8 +11,7 @@
 // protéiques ; rapporter les g/kg au poids total surestimerait
 // nettement la seconde.
 
-import { clamp } from './stats-math.js';
-import { estimateBmr, katchMcArdle } from './anthropometry.js';
+import { estimateBmr } from './anthropometry.js';
 
 /**
  * Densité énergétique des macronutriments, en kcal par gramme.
@@ -121,9 +120,21 @@ export function computeTargets({
   proteinOverrideG = null,
   fatOverrideG = null,
   fiberTargetG = 30,
+  // Répartition entraînement / repos, à total hebdomadaire CONSTANT.
+  // `dayFactor` vaut 1 en régime uniforme.
+  dayFactor = 1,
+  dayType = null,
+  // Formule de métabolisme de base. 'auto' prend la mieux informée des
+  // formules applicables ; un choix explicite est respecté tant que ses
+  // entrées existent.
+  bmrMethod = 'auto',
+  measuredBmr = null,
 } = {}) {
   const settings = GOAL_SETTINGS[goal] ?? GOAL_SETTINGS.maintien;
-  const estimate = estimateBmr({ leanMassKg, weightKg, heightCm, age, sex });
+  const estimate = estimateBmr({
+    leanMassKg, weightKg, heightCm, age, sex,
+    method: bmrMethod, measuredBmr,
+  });
 
   if (!estimate.bmr) {
     return { targets: null, note: estimate.note, bmr_method: null };
@@ -140,7 +151,12 @@ export function computeTargets({
   // d'une personne moyennement composée.
   const macroBaseKg = leanMassKg > 0 ? leanMassKg : (weightKg ?? 0) * 0.85;
   const macroBasis = leanMassKg > 0 ? 'masse maigre' : 'poids total ajusté';
-  const kcal = kcalOverride ?? tdee * settings.calorieFactor;
+  // L'ajustement du jour s'applique APRÈS l'objectif : il déplace des
+  // calories entre les jours, il n'en crée pas. Les protéines, elles,
+  // n'en dépendent pas — la littérature donne une cible QUOTIDIENNE, pas
+  // une cible par séance.
+  const baseKcal = kcalOverride ?? tdee * settings.calorieFactor;
+  const kcal = baseKcal * (Number(dayFactor) || 1);
 
   const proteinG = proteinOverrideG ?? settings.proteinPerKg * macroBaseKg;
   const fatG = fatOverrideG ?? settings.fatPerKg * macroBaseKg;
@@ -170,6 +186,12 @@ export function computeTargets({
       label: estimate.method_label,
       precision: estimate.precision,
       note: estimate.note,
+      formula: estimate.formula ?? null,
+      source: estimate.source ?? null,
+      requested: estimate.requested ?? 'auto',
+      // Un repli silencieux ferait croire que la méthode choisie a
+      // servi. L'interface doit pouvoir le signaler.
+      fell_back: estimate.fell_back ?? false,
     },
     breakdown: {
       bmr: round(bmr),
@@ -183,6 +205,9 @@ export function computeTargets({
       protein_per_kg: settings.proteinPerKg,
       fat_per_kg: settings.fatPerKg,
       activity_multiplier: ACTIVITY_MULTIPLIERS[activity] ?? ACTIVITY_MULTIPLIERS.leger,
+      base_kcal: round(baseKcal),
+      day_factor: Math.round((Number(dayFactor) || 1) * 1000) / 1000,
+      day_type: dayType,
     },
     inputs: {
       lean_mass_kg: leanMassKg > 0 ? round(leanMassKg, 2) : null,
@@ -212,6 +237,12 @@ export function computeTargets({
       `Protéines ${settings.proteinPerKg} g/kg et lipides ${settings.fatPerKg} g/kg `
         + `de ${macroBasis}.`,
       'Glucides : ce qu’il reste de calories, divisé par 4.',
+      ...(dayFactor !== 1
+        ? [`Jour ${dayType === 'entrainement' ? 'd’entraînement' : 'de repos'} : `
+          + `objectif × ${Math.round(dayFactor * 100) / 100}. Ce qui est ajouté les `
+          + 'jours de séance est retiré les jours de repos — le total de la semaine '
+          + 'ne bouge pas.']
+        : []),
     ],
   };
 }
