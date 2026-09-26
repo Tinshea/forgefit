@@ -17,6 +17,20 @@ fait en un clic.
 Le chemin le plus court : le serveur tire les images publiées, rien ne se
 construit chez lui, et une poussée sur `main` suffit à le mettre à jour.
 
+### 0. Vérifier l'architecture du serveur
+
+Les images publiées sont construites **pour amd64 uniquement**. Sur le serveur :
+
+```bash
+uname -m
+```
+
+- `x86_64` → tout fonctionne, passer à l'étape 1.
+- `aarch64` / `armv7l` (Raspberry Pi, NAS ARM) → les images ne démarreront pas.
+  Corriger dans `.github/workflows/docker.yml` :
+  `platforms: linux/amd64,linux/arm64`, puis republier. La construction devient
+  nettement plus lente — le front est compilé sous émulation QEMU.
+
 ### 1. Poser les fichiers
 
 Sur le serveur, un seul fichier est nécessaire — le compose de production.
@@ -68,6 +82,17 @@ de n'importe qui.
 Puis peupler la base : voir *Peupler la base*, plus bas.
 
 ### 4. Mise à jour automatique à chaque poussée
+
+Avant d'activer ceci, savoir ce qui la protège : `.github/workflows/verifier.yml`
+lance les 415 tests et les contrôles du paquet à chaque poussée, et
+`docker.yml` en dépend (`needs: verifier`). **Aucune image n'est publiée si la
+vérification échoue** — donc Watchtower n'a rien de cassé à tirer.
+
+Sans ce préalable, une régression partirait en production sans que personne ne
+la voie passer.
+
+#### Activer Watchtower
+
 
 `.github/workflows/docker.yml` publie trois images sur GHCR à chaque push sur
 `main`. Reste à ce que le serveur les prenne.

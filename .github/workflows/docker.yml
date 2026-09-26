@@ -18,7 +18,20 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  # ┌─ LA VERIFICATION EST UN PREALABLE, PAS UN VOISIN ────────────────┐
+  # │ Sans ce prealable, la publication et les tests tournaient en     │
+  # │ parallele : une image cassee etait publiee AVANT que la suite    │
+  # │ n'ait fini d'echouer, et Watchtower la deployait.                │
+  # │                                                                   │
+  # │ `needs: verifier` en fait une condition : rien n'est construit   │
+  # │ tant que les 415 tests et les controles du paquet n'ont pas      │
+  # │ tous passe.                                                      │
+  # └───────────────────────────────────────────────────────────────────┘
+  verifier:
+    uses: ./.github/workflows/verifier.yml
+
   build:
+    needs: verifier
     runs-on: ubuntu-latest
 
     permissions:

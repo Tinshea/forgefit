@@ -1,0 +1,70 @@
+name: Vérifier
+
+# ┌─ CE QUI MANQUAIT ─────────────────────────────────────────────────┐
+# │ Les 415 tests ne tournaient que sur un poste de developpement.     │
+# │ Rien ne les executait a la poussee — et depuis que Watchtower      │
+# │ deploie tout seul, une regression partait donc en production sans  │
+# │ que personne ne l'ait vue passer.                                  │
+# │                                                                     │
+# │ Ce fichier est appelable de deux facons :                          │
+# │   — `push` / `pull_request` : il garde les branches ;              │
+# │   — `workflow_call` : la publication d'images s'en sert comme      │
+# │     PREALABLE (voir docker.yml). Une image ne peut plus etre       │
+# │     publiee si la verification echoue.                             │
+# │                                                                     │
+# │ Ecrit une fois, appele deux fois : sans `workflow_call`, il aurait │
+# │ fallu recopier ces etapes dans docker.yml, et les deux copies      │
+# │ auraient diverge.                                                  │
+# └─────────────────────────────────────────────────────────────────────┘
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+        working-directory: backend
+
+      # Les tests sont purement unitaires : aucune base n'est requise,
+      # verifie en les lancant avec une DATABASE_URL injoignable.
+      - run: npm test
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: frontend
+
+      # La construction D'ABORD : `check:origin` inspecte `dist/`, il n'a
+      # rien a lire tant que le paquet n'existe pas.
+      - run: npm run build
+        working-directory: frontend
+
+      # Anatomie, navigation, projection, et l'absence d'origine absolue
+      # figee dans le paquet.
+      #
+      # `check:screens` et `check:browsers` ne sont PAS ici : ils exigent
+      # une pile qui tourne et un navigateur en ecoute. Les faire tourner
+      # en integration demanderait de monter Postgres et l'API — un autre
+      # chantier, et une autre duree.
+      - run: npm run check
+        working-directory: frontend
