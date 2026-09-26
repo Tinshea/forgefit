@@ -13,9 +13,21 @@ class ApiError extends Error {
   }
 }
 
+/**
+ * Signalé à toute l'application quand le serveur exige une session.
+ *
+ * Sans cela, chaque écran afficherait son propre bandeau « HTTP 401 » —
+ * une douzaine de messages incompréhensibles au lieu d'un écran de
+ * connexion.
+ */
+export const SESSION_EVENT = 'forgefit:session-required';
+
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
+    // Le cookie de session ne part pas tout seul : sans ceci, se
+    // connecter « réussit » et aucune requête suivante n'en profite.
+    credentials: 'include',
     ...options,
   });
 
@@ -32,7 +44,12 @@ async function request(path, options = {}) {
     throw new ApiError(res.status, 'Réponse illisible du serveur');
   }
 
-  if (!res.ok) throw new ApiError(res.status, body?.error ?? `HTTP ${res.status}`, body?.details);
+  if (!res.ok) {
+    if (res.status === 401 && body?.code === 'session_required') {
+      window.dispatchEvent(new CustomEvent(SESSION_EVENT));
+    }
+    throw new ApiError(res.status, body?.error ?? `HTTP ${res.status}`, body?.details);
+  }
   return body;
 }
 
@@ -44,6 +61,20 @@ const qs = (params) => {
 };
 
 export const api = {
+  // --- Coach ---
+  coachToday: () => request('/api/coach/today'),
+  coachGoal: () => request('/api/coach/goal'),
+  setCoachGoal: (body) => request('/api/coach/goal', { method: 'PUT', body: JSON.stringify(body) }),
+  coachSyllabus: () => request('/api/coach/syllabus'),
+  marquerProgres: (cle) => request(`/api/coach/progress/${encodeURIComponent(cle)}`, { method: 'POST' }),
+  retirerProgres: (cle) => request(`/api/coach/progress/${encodeURIComponent(cle)}`, { method: 'DELETE' }),
+
+  // --- Comptes ---
+  authState: () => request('/api/auth/state'),
+  register: (body) => request('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+  login: (body) => request('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  logout: () => request('/api/auth/logout', { method: 'POST' }),
+
   // --- Exercices ---
   exercises: (params) => request(`/api/exercises${qs(params)}`),
   exercise: (idOrSlug) => request(`/api/exercises/${idOrSlug}`),
@@ -82,6 +113,7 @@ export const api = {
     method: 'POST', body: JSON.stringify(body),
   }),
   syncEvents: () => request('/api/health-sync/events'),
+  syncConfig: () => request('/api/health/sync-config'),
 
   healthSeries: (params) => request(`/api/health/series${qs(params)}`),
   healthSources: () => request('/api/health/sources'),

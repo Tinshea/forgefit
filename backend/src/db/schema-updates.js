@@ -470,6 +470,61 @@ const STATEMENTS = [
          UNIQUE (program_day_id, position) DEFERRABLE INITIALLY IMMEDIATE;
      END IF;
    END $$`,
+
+  // -------------------------------------------------------------------
+  // Authentification
+  //
+  // ┌─ CE QUE CES TROIS TABLES REMPLACENT ────────────────────────────┐
+  // │ L'utilisateur était lu dans un en-tête `x-user-id`, sans        │
+  // │ vérification. Cohérent sur un réseau privé ; intenable dès que  │
+  // │ l'adresse devient publique, où n'importe qui lit et écrit les   │
+  // │ mesures de n'importe qui.                                       │
+  // └──────────────────────────────────────────────────────────────────┘
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS password_set_at TIMESTAMPTZ`,
+
+  // Le jeton n'est JAMAIS stocké en clair : une fuite de cette table
+  // livrerait sinon toutes les sessions ouvertes. On n'y garde que son
+  // empreinte, et `ON DELETE CASCADE` fait qu'un compte supprimé ferme
+  // ses sessions au lieu de les laisser flotter.
+  `CREATE TABLE IF NOT EXISTS sessions (
+     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     token_hash   TEXT NOT NULL UNIQUE,
+     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+     expires_at   TIMESTAMPTZ NOT NULL,
+     user_agent   TEXT
+   )`,
+  `CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id)`,
+  `CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions (expires_at)`,
+
+  // La temporisation se compte PAR ADRESSE, pas par session : sinon il
+  // suffirait de jeter son cookie entre deux essais pour repartir de
+  // zéro. La ligne survit à l'échec et se remet à zéro au succès.
+  // -------------------------------------------------------------------
+  // Objectif de discipline, et progression dans son syllabus
+  //
+  // L'objectif vit sur `users` : il n'y en a qu'un actif à la fois, et
+  // une table à une ligne serait une indirection pour rien. La
+  // progression, elle, est une liste qui grandit — d'où sa table.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_discipline TEXT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_grade INT`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS goal_sessions_per_week INT`,
+
+  `CREATE TABLE IF NOT EXISTS discipline_progress (
+     user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     discipline  TEXT NOT NULL,
+     item_key    TEXT NOT NULL,
+     acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+     PRIMARY KEY (user_id, discipline, item_key)
+   )`,
+
+  `CREATE TABLE IF NOT EXISTS login_attempts (
+     email        TEXT PRIMARY KEY,
+     failures     INT NOT NULL DEFAULT 0,
+     last_failure TIMESTAMPTZ NOT NULL DEFAULT now()
+   )`,
 ];
 
 /**

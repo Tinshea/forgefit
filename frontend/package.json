@@ -10,10 +10,12 @@
     "generate:anatomy": "node scripts/generate-anatomy.mjs",
     "check:anatomy": "node scripts/check-anatomy.mjs",
     "check:nav": "node scripts/check-navigation.mjs",
-    "check": "npm run check:anatomy && npm run check:nav && npm run check:map",
+    "check": "npm run check:anatomy && npm run check:nav && npm run check:map && npm run check:origin",
     "check:screens": "node scripts/check-screens.mjs",
     "check:map": "node scripts/check-mercator.mjs",
-    "generate:icons": "node scripts/generate-icons.mjs"
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "check:browsers": "node scripts/check-browsers.mjs",
+    "check:origin": "node scripts/check-origin.mjs"
   },
   "dependencies": {
     "preact": "^10.29.8",
@@ -24,6 +26,7 @@
   "devDependencies": {
     "@phosphor-icons/core": "^2.1.1",
     "@vitejs/plugin-react": "^4.3.1",
+    "playwright": "^1.63.0",
     "vite": "^5.4.2"
   }
 }

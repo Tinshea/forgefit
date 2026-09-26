@@ -21,6 +21,8 @@ import { nutritionRouter } from './routes/nutrition.js';
 import { profileRouter } from './routes/profile.js';
 import { calendarRouter } from './routes/calendar.js';
 import { exportRouter } from './routes/export.js';
+import { authRouter, isClaimed, sessionOf } from './routes/auth.js';
+import { coachRouter } from './routes/coach.js';
 
 export function createApp() {
   const app = express();
@@ -44,6 +46,10 @@ export function createApp() {
       ));
     },
     allowedHeaders: ['Content-Type', 'X-User-Id', 'X-ForgeFit-Signature', 'X-ForgeFit-Source'],
+    // Sans ceci, le navigateur n'envoie pas le cookie de session vers
+    // une autre origine — et la connexion « réussit » sans jamais
+    // prendre effet.
+    credentials: true,
   }));
 
   // Le corps brut est conserve : la signature HMAC porte sur les octets
@@ -62,6 +68,47 @@ export function createApp() {
     }
   });
 
+  // Les comptes sont servis AVANT le garde : l'écran de connexion doit
+  // pouvoir interroger l'état de l'instance et se connecter.
+  app.use('/api/auth', authRouter);
+
+  /**
+   * Le garde de session.
+   *
+   * ┌─ POURQUOI IL N'EXIGE PAS TOUJOURS UNE SESSION ─────────────────┐
+   * │ Tant qu'aucun mot de passe n'existe, l'instance est « non      │
+   * │ réclamée » : elle se comporte comme avant, faute de quoi la    │
+   * │ mise à jour rendrait l'application muette avant même qu'on     │
+   * │ puisse créer le compte.                                        │
+   * │                                                                 │
+   * │ Dès qu'un mot de passe existe, `x-user-id` N'EST PLUS CRU, et  │
+   * │ toute requête exige une session valide. Le passage est à sens  │
+   * │ unique.                                                        │
+   * └─────────────────────────────────────────────────────────────────┘
+   *
+   * Le webhook santé est signé par HMAC et n'a pas de navigateur :
+   * il porte sa propre preuve et ne passe pas par ici.
+   */
+  app.use('/api', async (req, res, next) => {
+    try {
+      if (req.path === '/health' || req.path.startsWith('/health-sync')) return next();
+      if (!await isClaimed()) return next();
+
+      const session = await sessionOf(req);
+      if (!session) {
+        return res.status(401).json({
+          error: 'Session requise.',
+          // L'interface s'en sert pour montrer l'écran de connexion au
+          // lieu d'un bandeau d'erreur incompréhensible.
+          code: 'session_required',
+        });
+      }
+      req.userId = session.user_id;
+      return next();
+    } catch (err) { return next(err); }
+  });
+
+  app.use('/api/coach', coachRouter);
   app.use('/api/exercises', exercisesRouter);
   app.use('/api/workouts', workoutsRouter);
   app.use('/api/sports', sportsRouter);

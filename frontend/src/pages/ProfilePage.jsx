@@ -50,6 +50,54 @@ function Metric({ label, value, unit, detail, caveat }) {
   );
 }
 
+/**
+ * Le compte, et la déconnexion.
+ *
+ * ┌─ CE QUI MANQUAIT ─────────────────────────────────────────────────┐
+ * │ L'application a gagné un système de comptes complet, et AUCUN     │
+ * │ moyen de se déconnecter : `api.logout()` existait sans qu'aucun   │
+ * │ écran ne l'appelle. Une session ouverte sur un appareil prêté ne  │
+ * │ pouvait plus être fermée.                                         │
+ * │                                                                    │
+ * │ La carte ne s'affiche que si l'instance est protégée : proposer   │
+ * │ de se déconnecter là où personne ne se connecte n'aurait aucun    │
+ * │ sens.                                                              │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+function Compte() {
+  const [etat, setEtat] = useState(null);
+  const [occupe, setOccupe] = useState(false);
+
+  useEffect(() => { api.authState().then(setEtat).catch(() => {}); }, []);
+
+  if (!etat?.claimed || !etat.authenticated) return null;
+
+  const deconnecter = async () => {
+    if (!window.confirm('Se déconnecter de cet appareil ?')) return;
+    setOccupe(true);
+    try {
+      await api.logout();
+      // Rechargement franc : le portail se remonte depuis zéro, sans
+      // qu'un écran garde en mémoire des données qui ne sont plus à toi.
+      window.location.reload();
+    } catch {
+      setOccupe(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <h2 className="card-title">Compte</h2>
+      <p className="card-sub">{etat.user?.email}</p>
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+        <button type="button" className="btn-ghost" onClick={deconnecter} disabled={occupe}>
+          {occupe ? 'Un instant…' : 'Se déconnecter'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const [data, setData] = useState(null);
   const [form, setForm] = useState({});
@@ -323,6 +371,8 @@ export default function ProfilePage() {
           </ol>
         </div>
       )}
+
+      <Compte />
 
       <ExportCard />
     </div>

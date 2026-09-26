@@ -7,6 +7,7 @@ import TodayCard from '../components/TodayCard.jsx';
 import ExerciseSheet from '../components/ExerciseSheet.jsx';
 import { playLater as play } from '../lib/sound-lazy.js';
 import { muscleLabel } from '../lib/anatomy.js';
+import Glyph from '../components/Glyph.jsx';
 
 /**
  * Mode Terrain (mobile-first).
@@ -267,6 +268,26 @@ export default function FieldLogger({ navigate }) {
 
   if (booting) return <p className="empty">Chargement de la séance…</p>;
 
+  /**
+   * Supprime une série.
+   *
+   * Confirmation demandée : c'est destructif et irréversible, et le
+   * bouton est à quelques pixels de la valeur qu'on vient de lire.
+   */
+  const supprimerSerie = async (s) => {
+    const quoi = s.duration_s
+      ? `${s.duration_s} s`
+      : `${s.weight_kg ? `${Number(s.weight_kg)} kg × ` : ''}${s.reps}`;
+    if (!window.confirm(`Supprimer la série ${s.set_index} de ${s.name_fr} (${quoi}) ?`)) return;
+    try {
+      await api.deleteSet(session.id, s.id);
+      setSession((prev) => ({ ...prev, sets: prev.sets.filter((x) => x.id !== s.id) }));
+      showToast('Série supprimée');
+    } catch (e) {
+      showToast(`Suppression impossible : ${e.message}`);
+    }
+  };
+
   const sets = session?.sets ?? [];
   const totalVolume = sets.reduce((n, s) => n + Number(s.volume_kg ?? 0), 0);
 
@@ -508,6 +529,24 @@ export default function FieldLogger({ navigate }) {
                     ? `${s.duration_s} s`
                     : `${s.weight_kg ? `${Number(s.weight_kg)} kg × ` : ''}${s.reps}`}
                 </span>
+                {/* ┌─ CORRIGER UNE SÉRIE ──────────────────────────────┐
+                    │ L'API sait supprimer une série depuis le début ;  │
+                    │ l'interface ne l'exposait pas. Une faute de       │
+                    │ frappe — 80 kg au lieu de 8 — restait dans le    │
+                    │ volume et dans la charge pour toujours.          │
+                    │                                                   │
+                    │ On supprime plutôt qu'on édite : une série est   │
+                    │ un fait daté, et la refaire est plus clair que   │
+                    │ la réécrire.                                      │
+                    └───────────────────────────────────────────────────┘ */}
+                <button
+                  type="button"
+                  className="log-supprimer"
+                  aria-label={`Supprimer cette série de ${s.name_fr}`}
+                  onClick={() => supprimerSerie(s)}
+                >
+                  <Glyph name="corbeille" size={14} />
+                </button>
               </div>
             ))}
           </div>

@@ -25,7 +25,23 @@ export const unauthorized = (message = 'Signature invalide') => new HttpError(40
  * mécanisme d'authentification arrivera, il n'y aura qu'un endroit à
  * changer.
  */
-export const userOf = (req) => req.header('x-user-id') || config.defaultUserId;
+/**
+ * Qui fait la requête.
+ *
+ * ┌─ CE QUI A CHANGÉ, ET POURQUOI ────────────────────────────────────┐
+ * │ Cette fonction lisait `x-user-id` et le croyait sur parole :      │
+ * │ n'importe qui pouvait se faire passer pour n'importe qui en       │
+ * │ changeant une ligne d'en-tête.                                    │
+ * │                                                                    │
+ * │ `req.userId` est désormais posé par le garde de session, à partir │
+ * │ d'un cookie signé côté base. L'en-tête ne sert plus qu'aux        │
+ * │ instances NON RÉCLAMÉES — celles sans mot de passe, où il n'y a   │
+ * │ rien à usurper puisqu'il n'y a rien à protéger.                   │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export const userOf = (req) => req.userId
+  || req.header('x-user-id')
+  || config.defaultUserId;
 
 /** Borne un entier de requête (pagination, fenêtres temporelles). */
 export const boundedInt = (value, fallback, max) => Math.min(

@@ -28,11 +28,20 @@ const todayIso = () => {
     .toISOString().slice(0, 10);
 };
 
-export default function DateHud({ navigate }) {
+/**
+ * `bare` : la date SEULE, sans rien de ForgeFit.
+ *
+ * Le bandeau lit le programme d'entraînement et mène à son calendrier :
+ * c'est du contenu de module, et il n'a rien à faire au-dessus des
+ * quatre domaines. Sur le hub on garde ce qui est vrai partout — le
+ * jour et la date — et on n'appelle même pas l'API.
+ */
+export default function DateHud({ navigate, bare = false }) {
   const [day, setDay] = useState(null);
   const [program, setProgram] = useState(null);
 
   useEffect(() => {
+    if (bare) return undefined;
     const iso = todayIso();
     let alive = true;
     api.programCalendar({ from: iso, to: iso })
@@ -45,7 +54,7 @@ export default function DateHud({ navigate }) {
       // la date, qui n'a besoin de personne.
       .catch(() => {});
     return () => { alive = false; };
-  }, []);
+  }, [bare]);
 
   const now = new Date();
   const weekday = DAYS[now.getDay()];
@@ -69,6 +78,17 @@ export default function DateHud({ navigate }) {
   })();
 
   const status = day?.completed ? 'fait' : day?.planned ? 'prevu' : 'repos';
+
+  if (bare) {
+    return (
+      <div className="hud hud-bare">
+        <span className="hud-day">{weekday}</span>
+        <span className="hud-body">
+          <span className="hud-date">{dayNum} {month}</span>
+        </span>
+      </div>
+    );
+  }
 
   return (
     <button

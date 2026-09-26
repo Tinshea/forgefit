@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api.js';
 import { MODULES } from '../lib/navigation.js';
@@ -32,6 +32,9 @@ const TABS = [
  * téléphone. Il garde un état interne en repli, pour rester utilisable
  * seul — mais quand la coquille le pilote, c'est elle qui décide.
  */
+/** Durée de la sortie. Doit rester égale à celle de `ff-phone-out`. */
+const OUT_MS = 260;
+
 export default function PhoneMenu({
   navigate, currentModule, open: openProp, onOpenChange,
 }) {
@@ -45,6 +48,31 @@ export default function PhoneMenu({
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState(null);
   const [fullMap, setFullMap] = useState(false);
+
+  // ┌─ POURQUOI UN ÉTAT « EN TRAIN DE SE FERMER » ────────────────────┐
+  // │ Le panneau était monté sur `open &&`. À la fermeture, React le  │
+  // │ retirait du DOM sur-le-champ : il n'y avait donc RIEN à animer, │
+  // │ et le téléphone disparaissait d'un coup alors qu'il était entré │
+  // │ en glissant. L'aller était soigné, le retour n'existait pas.    │
+  // │                                                                  │
+  // │ On garde le nœud le temps de l'animation de sortie, puis on     │
+  // │ ferme pour de bon. C'est la seule façon d'animer un démontage.  │
+  // └──────────────────────────────────────────────────────────────────┘
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef(null);
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
+
+  const close = useCallback(() => {
+    if (closing) return;
+    play('cancel');
+    // Le mouvement est un ornement : qui l'a désactivé ferme tout de suite.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setOpen(false);
+      return;
+    }
+    setClosing(true);
+    closeTimer.current = setTimeout(() => { setClosing(false); setOpen(false); }, OUT_MS);
+  }, [closing, setOpen]);
 
   const loadApps = useCallback(() => api.apps()
     .then((d) => setApps(d.items ?? []))
@@ -63,9 +91,8 @@ export default function PhoneMenu({
       if (e.key !== 'Escape') return;
       // Refermer la couche la plus haute d'abord : fermer le téléphone
       // en laissant la carte plein écran ouverte serait déroutant.
-      if (fullMap) setFullMap(false);
-      else setOpen(false);
-      play('cancel');
+      if (fullMap) { setFullMap(false); play('cancel'); }
+      else close();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -73,6 +100,8 @@ export default function PhoneMenu({
 
   const go = (section, page) => {
     setOpen(false);
+    setClosing(false);
+    clearTimeout(closeTimer.current);
     navigate?.(section, page);
   };
 
@@ -93,7 +122,7 @@ export default function PhoneMenu({
         className="phone-button"
         aria-expanded={open}
         aria-label={open ? 'Fermer le téléphone' : 'Ouvrir le téléphone'}
-        onClick={() => { setOpen(!open); play(open ? 'cancel' : 'select'); }}
+        onClick={() => { if (open) close(); else { setOpen(true); play('select'); } }}
       >
         <span className="phone-button-body" aria-hidden="true">
           <span className="phone-button-screen" />
@@ -114,18 +143,33 @@ export default function PhoneMenu({
         document.body,
       )}
 
-      {open && createPortal(
-        <div className="phone-layer" role="dialog" aria-label="Téléphone">
+      {(open || closing) && createPortal(
+        <div
+          className={`phone-layer${closing ? ' phone-layer-closing' : ''}`}
+          role="dialog"
+          aria-label="Téléphone"
+        >
           {/* Voile : fermer en cliquant à côté est le geste attendu. */}
           <button
             type="button"
             className="phone-scrim"
             aria-label="Fermer"
-            onClick={() => { setOpen(false); play('cancel'); }}
+            onClick={close}
           />
 
           <div className="phone">
             <div className="phone-notch" aria-hidden="true" />
+
+            {/* En plein écran il n'y a plus d'« à côté » où appuyer :
+                la feuille de style n'affiche ce bouton que là. */}
+            <button
+              type="button"
+              className="phone-close"
+              aria-label="Fermer le téléphone"
+              onClick={close}
+            >
+              <Glyph name="croix" size={18} />
+            </button>
 
             <div className="phone-tabs">
               {TABS.map((t) => (

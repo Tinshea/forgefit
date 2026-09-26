@@ -49,6 +49,10 @@ const WANTED = {
   rails: ['fill', 'train'],
   vague: ['fill', 'waves'],
 
+  // Domaines du hub — un pictogramme par constellation
+  cerveau: ['fill', 'brain'],
+  gens: ['fill', 'users-three'],
+
   // Modules et sections
   app: ['fill', 'squares-four'],
   livre: ['fill', 'books'],

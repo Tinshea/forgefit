@@ -201,3 +201,70 @@ test('computeReadiness: score borne sur 0-100', () => {
   });
   assert.ok(extreme.score >= 0 && extreme.score <= 100, `hors bornes : ${extreme.score}`);
 });
+
+test('objet plat : la forme que Raccourcis sait produire', () => {
+  const { source, metrics } = normalizePayload({
+    hrv: '68', resting_hr: '52', weight: '78.2', lean_mass: '62.1', steps: '9430',
+  });
+  assert.equal(source, 'plat');
+  assert.equal(metrics.length, 5);
+  // Raccourcis envoie tout en texte : la conversion doit etre faite.
+  const vfc = metrics.find((m) => m.metricType === 'hrv');
+  assert.equal(vfc.value.value, 68);
+  assert.equal(typeof vfc.value.value, 'number');
+  assert.equal(metrics.find((m) => m.metricType === 'weight').value.value, 78.2);
+});
+
+test('objet plat : une cle inconnue fait renoncer a la forme entiere', () => {
+  // Sinon n'importe quel objet mal forme ressortirait en metriques
+  // inventees. Mieux vaut retomber sur le generique.
+  assert.equal(detectSource({ hrv: 68, temperature_du_salon: 21.5 }), 'generic');
+  assert.equal(detectSource({ hrv: 68, bidule: 3 }), 'generic');
+});
+
+test('objet plat : une valeur non scalaire fait renoncer aussi', () => {
+  assert.equal(detectSource({ hrv: { value: 68 } }), 'generic');
+  assert.equal(detectSource({ hrv: 'pas un nombre' }), 'generic');
+  assert.equal(detectSource({}), 'generic');
+});
+
+test('objet plat : ne detourne pas une charge utile Apple Health', () => {
+  assert.equal(detectSource({ data: { metrics: [{ name: 'step_count', data: [] }] } }), 'apple_health');
+  assert.equal(detectSource({ metrics: [{ type: 'hrv', value: 68 }] }), 'generic');
+});
+
+test('etiquette juste mais adaptateur inadapte : la forme reprend la main', () => {
+  // Le raccourci iOS annonce `apple_health` — c'est vrai — mais envoie
+  // un objet plat. Sans secours, l'adaptateur Apple rendait zero
+  // metrique et le webhook repondait 202 : une panne muette.
+  const { source, metrics } = normalizePayload(
+    { hrv: '68', resting_hr: '52' }, 'apple_health',
+  );
+  assert.equal(source, 'plat');
+  assert.equal(metrics.length, 2);
+});
+
+test('le secours ne se declenche PAS quand l etiquette a produit des mesures', () => {
+  const { source, metrics } = normalizePayload(
+    { data: { metrics: [{ name: 'step_count', units: 'count', data: [{ qty: 9430, date: '2026-09-25' }] }] } },
+    'apple_health',
+  );
+  assert.equal(source, 'apple_health');
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0].metricType, 'steps');
+});
+
+test('une charge utile incomprise ne devient pas une mesure fantome', () => {
+  // Raccourci iOS dont les variables sont vides : ni la forme plate ni
+  // le generique ne doivent inventer de mesure.
+  const { metrics } = normalizePayload({ hrv: '', resting_hr: '' }, 'apple_health');
+  assert.equal(metrics.length, 0, 'aucune mesure ne doit etre fabriquee');
+});
+
+test('un type inconnu mais NOMME reste accepte', () => {
+  // Le contraire du test precedent : ici l'emetteur dit ce qu'il mesure.
+  const { metrics } = normalizePayload({ metrics: [{ type: 'glycemie_capteur_x', value: 5.4 }] });
+  assert.equal(metrics.length, 1);
+  assert.equal(metrics[0].metricType, 'glycemie_capteur_x');
+  assert.equal(metrics[0].value.value, 5.4);
+});

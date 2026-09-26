@@ -25,12 +25,43 @@
 // │ serait une promesse, pas une fonctionnalité.                      │
 // └────────────────────────────────────────────────────────────────────┘
 
+/**
+ * L'identité de la COQUILLE, qui n'est celle d'aucun module.
+ *
+ * ┌─ POURQUOI CETTE DISTINCTION A SA PLACE ICI ───────────────────────┐
+ * │ « ForgeFit » désignait à la fois l'application et son premier     │
+ * │ module. L'en-tête affichait donc « ForgeFit » y compris à         │
+ * │ l'intérieur du Carnet, qui n'a rien à voir — et le hub, qui n'est │
+ * │ au-dessus de rien de particulier, portait la marque d'un seul de  │
+ * │ ses quatre domaines.                                              │
+ * │                                                                    │
+ * │ Atlas est la coquille. ForgeFit est ce qui occupe « Corps ».      │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+export const APP = {
+  name: 'Atlas',
+  tagline: 'Quatre domaines, un recueil',
+};
+
 export const MODULES = [
   {
     key: 'forgefit',
     label: 'ForgeFit',
+    // Le domaine du hub auquel ce module appartient. Voir
+    // `constellations.js` : les quatre domaines existent d'abord, les
+    // modules viennent s'y loger.
+    category: 'corps',
     glyph: 'halterophile',
     tagline: 'Entraînement, nutrition, santé',
+    // Le lettrage en deux tons est la marque de CE module. Un module
+    // sans `brandParts` voit simplement son libellé s'afficher.
+    brandParts: ['Forge', 'Fit'],
+    // Le bandeau de date affiche l'avancement dans le CYCLE
+    // D'ENTRAÎNEMENT — « Semaine 3 / 4 », la séance du jour. C'est du
+    // contenu de ce module : il s'affichait jusque dans le Carnet, où
+    // il ne veut rien dire. Un module qui ne le réclame pas ne voit
+    // que la date.
+    showsProgram: true,
     sections: [
       {
         key: 'entrainement',
@@ -38,8 +69,10 @@ export const MODULES = [
         icon: '🏋️',
         glyph: 'halterophile',
         pages: [
+          { key: 'coach', label: 'Aujourd’hui', hint: 'Ce qu’il y a à faire, et pourquoi' },
           { key: 'seance', label: 'Séance', hint: 'Enregistrer une séance en cours' },
           { key: 'sports', label: 'Sports', hint: 'Toutes disciplines : enregistrer et suivre la charge' },
+          { key: 'syllabus', label: 'Syllabus', hint: 'Ton programme de grade, et ce que tu tiens déjà' },
           { key: 'calendrier', label: 'Calendrier', hint: 'Séances prévues, séances faites' },
           { key: 'programme', label: 'Programme', hint: 'Modèles, générateur et construction à la main' },
           { key: 'exercices', label: 'Exercices', hint: 'Catalogue classé, muscles sollicités et exécution' },
@@ -53,6 +86,7 @@ export const MODULES = [
         pages: [
           { key: 'journal', label: 'Journal', hint: 'Repas du jour et macros restantes' },
           { key: 'aliments', label: 'Aliments', hint: 'Catalogue, macros et prix' },
+          { key: 'recettes', label: 'Recettes', hint: 'Quoi cuisiner, avec macros, temps et prix' },
         ],
       },
       {
@@ -93,6 +127,7 @@ export const MODULES = [
   {
     key: 'carnet',
     label: 'Carnet',
+    category: 'savoir',
     glyph: 'livre',
     tagline: 'Notes — module de test',
     sections: [
@@ -132,6 +167,12 @@ export function keyCollisions() {
 
   for (const mod of MODULES) {
     for (const section of mod.sections) {
+      // `hub` est l'adresse du tableau d'étoiles (`#/hub`). Une section
+      // ainsi nommée serait analysée comme le hub et ne s'ouvrirait
+      // jamais — une panne muette, que rien d'autre ne signalerait.
+      if (section.key === 'hub') {
+        problems.push(`section « hub » dans ${mod.key} : ce nom est réservé à la route du hub`);
+      }
       if (sections.has(section.key)) {
         problems.push(`section « ${section.key} » déclarée par ${sections.get(section.key)} et ${mod.key}`);
       }

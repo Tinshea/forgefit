@@ -197,6 +197,22 @@ function adaptGeneric(payload) {
 
   return items
     .filter((i) => i && typeof i === 'object')
+    // ┌─ UNE CHARGE UTILE INCOMPRISE NE DOIT PAS DEVENIR UNE MESURE ──┐
+    // │ Sans ce filtre, un objet sans champ de type ressortait en     │
+    // │ metrique `unknown` dont la valeur etait l'objet entier.       │
+    // │                                                                │
+    // │ Cas reel : un raccourci iOS dont les variables sont vides     │
+    // │ envoie `{"hrv":"","resting_hr":""}`. La forme plate la        │
+    // │ refuse — les valeurs ne sont pas des nombres — et le          │
+    // │ generique en fabriquait UNE mesure `unknown`. Le journal      │
+    // │ annoncait donc « 1 mesure enregistree » : un faux succes,     │
+    // │ pire qu'un echec franc, parce qu'il detourne du vrai defaut.  │
+    // │                                                                │
+    // │ On garde en revanche un type INCONNU MAIS NOMME — un          │
+    // │ `glycemie_capteur_x` reste interrogeable, et c'etait le sens  │
+    // │ de `canonicalType` qui laisse passer ce qu'il ne connait pas. │
+    // └────────────────────────────────────────────────────────────────┘
+    .filter((i) => (i.type ?? i.metric_type ?? i.name) !== undefined)
     .map((i) => {
       const rawValue = i.value ?? i.qty ?? i.amount;
       return metric({
@@ -212,7 +228,52 @@ function adaptGeneric(payload) {
     });
 }
 
+/**
+ * Objet PLAT : { hrv: 68, resting_hr: 52, weight: 78.2 }
+ *
+ * ┌─ POURQUOI CETTE FORME MERITE SON ADAPTATEUR ──────────────────────┐
+ * │ C'est la seule qu'un raccourci iOS produise SANS EFFORT. L'action │
+ * │ « Dictionnaire » de Raccourcis fabrique un objet a un niveau, une │
+ * │ cle par ligne — rien de plus. Un tableau d'objets, la forme que   │
+ * │ l'adaptateur generique attend, demande d'imbriquer des            │
+ * │ dictionnaires dans des listes, action par action : une douzaine   │
+ * │ de manipulations de plus, toutes faites a la main sur un          │
+ * │ telephone, et autant d'occasions de se tromper.                   │
+ * │                                                                    │
+ * │ On deplace donc la complexite du CLIENT vers le SERVEUR, ou elle  │
+ * │ est ecrite une fois et couverte par des tests. Le raccourci se    │
+ * │ reduit a « une cle, une valeur ».                                 │
+ * │                                                                    │
+ * │ Prudence a la RECONNAISSANCE : on n'accepte cette forme que si    │
+ * │ TOUTES les cles sont des types connus et toutes les valeurs des   │
+ * │ scalaires. Sans quoi n'importe quel objet mal forme y tomberait   │
+ * │ et ressortirait en metriques inventees.                           │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+function adaptPlat(payload) {
+  return Object.entries(payload)
+    .filter(([, v]) => v !== null && v !== '' && typeof v !== 'object')
+    .map(([cle, v]) => metric({
+      metricType: canonicalType(cle),
+      // Raccourcis envoie les nombres en texte : « 68 », pas 68.
+      value: { value: Number(v) },
+      meta: {},
+    }))
+    .filter((m) => Number.isFinite(m.value.value));
+}
+
+/** La charge utile est-elle un objet plat de metriques connues ? */
+function estPlat(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  const entrees = Object.entries(payload).filter(([cle]) => cle !== 'source');
+  if (entrees.length === 0) return false;
+  return entrees.every(([cle, v]) => CANONICAL_TYPES.has(canonicalType(cle))
+    && (typeof v === 'number'
+      || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)))));
+}
+
 const ADAPTERS = {
+  plat: adaptPlat,
   apple_health: adaptAppleHealth,
   apple: adaptAppleHealth,
   healthkit: adaptAppleHealth,
@@ -231,6 +292,10 @@ const ADAPTERS = {
 export function detectSource(payload) {
   if (payload?.data?.metrics || payload?.metrics?.[0]?.units) return 'apple_health';
   if (payload?.readings || payload?.device || payload?.device_id) return 'iot';
+  // Teste EN DERNIER : les formes ci-dessus sont signees, celle-ci est
+  // deduite. Une charge utile Apple Health n'a aucune raison de finir
+  // ici, et si elle y finissait, `estPlat` la refuserait de toute facon.
+  if (estPlat(payload)) return 'plat';
   return 'generic';
 }
 
@@ -262,6 +327,34 @@ export function normalizePayload(payload, declaredSource) {
   }
 
   if (!Array.isArray(metrics)) metrics = [];
+
+  // ┌─ UNE ETIQUETTE JUSTE PEUT DESIGNER LE MAUVAIS ADAPTATEUR ───────┐
+  // │ Cas reel, trouve en essayant le raccourci iOS : il annonce      │
+  // │ `apple_health`, ce qui est VRAI — la donnee vient bien de       │
+  // │ l'app Sante — mais il l'envoie en objet plat, pas dans le       │
+  // │ format d'export d'Apple. L'adaptateur Apple n'y trouvait rien   │
+  // │ et rendait une liste vide.                                      │
+  // │                                                                  │
+  // │ Le webhook repondait alors 202 et enregistrait ZERO mesure :    │
+  // │ une panne parfaitement silencieuse, du genre qu'on ne decouvre  │
+  // │ qu'en s'etonnant, des semaines plus tard, de n'avoir aucune     │
+  // │ courbe.                                                          │
+  // │                                                                  │
+  // │ Quand l'etiquette ne donne rien, on redemande donc a la FORME.  │
+  // │ Le secours ne peut pas nuire : il ne s'exerce que sur un        │
+  // │ resultat vide, ou il n'y a rien a ecraser.                      │
+  // └──────────────────────────────────────────────────────────────────┘
+  if (metrics.length === 0) {
+    const parLaForme = detectSource(payload);
+    if (parLaForme !== adapterKey) {
+      try {
+        const secours = ADAPTERS[parLaForme]?.(payload) ?? [];
+        if (Array.isArray(secours) && secours.length > 0) {
+          return { source: parLaForme, metrics: secours };
+        }
+      } catch { /* on garde la liste vide */ }
+    }
+  }
 
   return {
     // On conserve l'etiquette declaree pour la tracabilite, sauf le

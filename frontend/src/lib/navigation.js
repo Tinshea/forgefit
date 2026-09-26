@@ -16,7 +16,7 @@
 // une salle de contrôle. Dix onglets au même rang obligeaient à lire
 // toute la barre pour trouver un bouton de saisie.
 
-import { ALL_SECTIONS, MODULES, moduleOf } from './modules.js';
+import { ALL_SECTIONS, MODULES, APP, moduleOf } from './modules.js';
 
 /**
  * Les sections, à plat.
@@ -28,7 +28,10 @@ import { ALL_SECTIONS, MODULES, moduleOf } from './modules.js';
  */
 export const SECTIONS = ALL_SECTIONS;
 
-export { MODULES, moduleOf };
+// La coquille et ses modules transitent par le même point d'entrée que
+// le reste de la navigation : App.jsx n'a pas à savoir dans quel
+// fichier vit chaque donnée pure.
+export { MODULES, APP, moduleOf };
 
 /**
  * Route par défaut selon le contexte d'usage.
@@ -46,15 +49,33 @@ export function findRoute(sectionKey, pageKey) {
   return { section, page };
 }
 
-/** Lit la route depuis le fragment d'URL (#/section/page). */
+/**
+ * Le hub, au-dessus des modules.
+ *
+ * Il n'a ni section ni page : c'est justement ce qui le distingue. Une
+ * route vaut donc SOIT `{ hub: true }`, SOIT `{ section, page }` — et
+ * `isHub()` est le seul endroit qui en décide, pour qu'aucun appelant
+ * n'ait à deviner la forme.
+ */
+export const HUB = { hub: true };
+export const isHub = (route) => route?.hub === true;
+
+/** Lit la route depuis le fragment d'URL (#/hub ou #/section/page). */
 export function parseHash(hash) {
-  const m = /^#\/([\w-]+)(?:\/([\w-]+))?/.exec(hash ?? '');
+  const raw = hash ?? '';
+  // `#/hub` est réservé : aucune section ne peut porter ce nom, sans
+  // quoi elle deviendrait inatteignable. `keyCollisions()` le vérifie.
+  if (/^#\/hub\/?$/.test(raw)) return HUB;
+
+  const m = /^#\/([\w-]+)(?:\/([\w-]+))?/.exec(raw);
   if (!m) return null;
   const found = findRoute(m[1], m[2]);
   return found ? { section: found.section.key, page: found.page.key } : null;
 }
 
-export const toHash = ({ section, page }) => `#/${section}/${page}`;
+export const toHash = (route) => (isHub(route)
+  ? '#/hub'
+  : `#/${route.section}/${route.page}`);
 
 /** Toutes les routes valides, pour vérification et navigation clavier. */
 export const allRoutes = () => SECTIONS.flatMap(

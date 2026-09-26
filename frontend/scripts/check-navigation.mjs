@@ -13,6 +13,7 @@ import {
   SECTIONS, findRoute, parseHash, toHash, defaultRoute, allRoutes,
 } from '../src/lib/navigation.js';
 import { MODULES, keyCollisions } from '../src/lib/modules.js';
+import { CONSTELLATIONS, hubBoard, hubProblems } from '../src/lib/constellations.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 let problems = 0;
@@ -130,6 +131,40 @@ console.log('\n=== Modules ===');
   const collisions = keyCollisions();
   if (collisions.length === 0) ok('aucune collision de clé entre modules');
   else fail(`collisions de clés : ${collisions.join(' | ')}`);
+}
+
+console.log('\n=== Hub ===');
+{
+  if (CONSTELLATIONS.length === 4) ok('quatre domaines déclarés');
+  else fail(`${CONSTELLATIONS.length} domaine(s) au lieu de quatre`);
+
+  const complet = CONSTELLATIONS.every(
+    (c) => c.label && c.tagline && c.glyph && c.stars.length >= 3 && c.edges.length >= 2,
+  );
+  if (complet) ok('chaque domaine a nom, description, pictogramme et tracé');
+  else fail('un domaine est incomplet');
+
+  // Une constellation allumée dont la route ne mène nulle part serait
+  // un cul-de-sac : on cliquerait, et rien ne s'ouvrirait.
+  const board = hubBoard();
+  const allumees = board.filter((c) => c.lit);
+  const routesValides = allumees.every((c) => c.route && findRoute(c.route.section, c.route.page));
+  if (routesValides) ok(`${allumees.length} domaine(s) habité(s), chacun menant à un écran réel`);
+  else fail('un domaine allumé pointe vers une route inexistante');
+
+  const eteintes = board.filter((c) => !c.lit);
+  if (eteintes.every((c) => c.route === null)) {
+    ok(`${eteintes.length} domaine(s) éteint(s), sans route — rien à ouvrir`);
+  } else fail('un domaine éteint porte une route');
+
+  const ennuis = hubProblems();
+  if (ennuis.length === 0) ok('chaque module est rangé dans un domaine existant et unique');
+  else fail(`hub : ${ennuis.join(' | ')}`);
+
+  // `#/hub` est une adresse réservée : elle doit s'analyser en hub, et
+  // aucune section ne doit pouvoir la capter.
+  if (parseHash('#/hub')?.hub === true) ok('« #/hub » s\'analyse bien en hub');
+  else fail('« #/hub » ne s\'analyse pas en hub');
 }
 
 console.log(problems ? `\n=== ${problems} PROBLÈME(S) ===` : '\n=== NAVIGATION VALIDE ===');

@@ -8,6 +8,11 @@ import {
 import { drainHealthEvents } from '../services/health-worker.js';
 import { canonicalType, CUMULATIVE_TYPES } from '../services/adapters.js';
 import { hydrationTarget } from '../services/anthropometry.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { pipeline } from 'node:stream/promises';
 
 export const healthRouter = Router();
 
@@ -19,7 +24,39 @@ export const healthRouter = Router();
  * sinon, ce qui reintroduirait une fuite temporelle par l'exception.
  * On compare donc des empreintes, toujours de taille fixe.
  */
+/** Comparaison a temps constant de deux chaines de longueurs libres. */
+function memeSecret(a, b) {
+  const x = crypto.createHash('sha256').update(String(a)).digest();
+  const y = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(x, y);
+}
+
+/**
+ * Jeton porteur : l'authentification des emetteurs qui ne signent pas.
+ *
+ * Accepte sous deux formes, et la seconde n'est pas un caprice :
+ *   — `Authorization: Bearer <jeton>`, la forme propre ;
+ *   — `?token=<jeton>`, parce qu'un raccourci iOS ne peut poser une
+ *     question a l'import que sur un parametre SIMPLE, et que l'URL en
+ *     est un quand le dictionnaire d'en-tetes n'en est pas un. Sans
+ *     cette forme, le jeton devrait etre saisi a la main dans
+ *     l'application apres import.
+ *
+ * Contrepartie assumee : une URL se retrouve dans les journaux du
+ * serveur, pas un en-tete. Sur une instance de reseau local c'est
+ * acceptable ; ce ne le serait pas sur une instance publique.
+ */
+function jetonValide(req) {
+  if (!config.webhookToken) return false;
+  const entete = req.header('authorization') ?? '';
+  const porte = /^Bearer\s+(.+)$/i.exec(entete)?.[1] ?? req.query.token;
+  if (!porte) return false;
+  return memeSecret(porte, config.webhookToken);
+}
+
 function verifySignature(req) {
+  // Le jeton d'abord : c'est le chemin du raccourci, et le plus frequent.
+  if (jetonValide(req)) return true;
   if (!config.webhookSecret) return true; // non configure : verification desactivee
   const provided = req.header('x-forgefit-signature');
   if (!provided) return false;
@@ -29,9 +66,7 @@ function verifySignature(req) {
     .update(req.rawBody ?? Buffer.alloc(0))
     .digest('hex');
 
-  const a = crypto.createHash('sha256').update(provided.replace(/^sha256=/, '')).digest();
-  const b = crypto.createHash('sha256').update(expected).digest();
-  return crypto.timingSafeEqual(a, b);
+  return memeSecret(provided.replace(/^sha256=/, ''), expected);
 }
 
 /**
@@ -83,19 +118,94 @@ healthRouter.post('/health-sync', asyncHandler(async (req, res) => {
   });
 }));
 
+/**
+ * GET /api/health/sync-config — l'adresse a coller dans le raccourci.
+ *
+ * ┌─ CE QUE CETTE ROUTE EXPOSE, ET POURQUOI C'EST ASSUME ─────────────┐
+ * │ Elle rend le jeton du webhook en clair. C'est deliberé : c'est le │
+ * │ propre identifiant de l'instance, montre a son proprietaire,      │
+ * │ comme une cle d'API dans un ecran de reglages.                    │
+ * │                                                                    │
+ * │ Elle est sous `/api/health/`, donc DERRIERE la session : sur une  │
+ * │ instance revendiquee, il faut etre connecte. Sur une instance     │
+ * │ sans mot de passe, elle est ouverte — mais tout l'est deja, les   │
+ * │ donnees de sante comprises, et le bandeau le dit.                 │
+ * │                                                                    │
+ * │ Elle n'est PAS sous `/health-sync`, qui contourne la session :    │
+ * │ l'y mettre aurait rendu le jeton lisible sans authentification    │
+ * │ meme sur une instance protegee, c'est-a-dire l'aurait donne a     │
+ * │ qui voulait le voler.                                             │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+healthRouter.get('/health/sync-config', asyncHandler(async (req, res) => {
+  res.json({
+    token: config.webhookToken || null,
+    // L'hote vu par le CLIENT : le serveur, lui, ne connait que le sien,
+    // et repondrait « localhost » a un telephone.
+    chemin: '/api/health-sync',
+    // Nom stable, quand l'hote en declare un : une IP de reseau local
+    // est distribuee par le routeur et change au redemarrage, ce qui
+    // perime l'adresse figee dans le raccourci.
+    hote_stable: config.mdnsHost || null,
+    signature_requise: Boolean(config.webhookSecret) && !config.webhookToken,
+  });
+}));
+
 /** GET /api/health-sync/events — suivi de l'ingestion. */
 healthRouter.get('/health-sync/events', asyncHandler(async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 20, 100);
   const { rows } = await query(
     `SELECT id, source, status, attempts, metrics_count, error,
-            received_at, processed_at
+            received_at, processed_at, payload, headers
        FROM webhook_events
       WHERE user_id = $1
       ORDER BY received_at DESC
       LIMIT $2`,
     [userOf(req), limit],
   );
-  res.json({ items: rows });
+
+  // ┌─ NOMMER LES CHAMPS VIDES PLUTOT QUE DIRE « AUCUNE MESURE » ──────┐
+  // │ Un envoi accepte qui n'enregistre rien laissait l'utilisateur    │
+  // │ sans prise : il fallait deviner laquelle des cinq mesures avait  │
+  // │ echoue, et il n'y a aucun moyen de le deviner depuis l'ecran.    │
+  // │                                                                   │
+  // │ La charge utile est deja stockee ; il suffit de la relire. On ne │
+  // │ renvoie QUE les noms de champs vides — jamais la charge utile    │
+  // │ entiere, qui peut peser des megaoctets sur un export Apple.      │
+  // │                                                                   │
+  // │ C'est la difference entre « ca n'a pas marche » et « la VFC et   │
+  // │ le poids sont revenus vides » : la seconde se corrige.           │
+  // └───────────────────────────────────────────────────────────────────┘
+  const champsVides = (p) => {
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return [];
+    const e = Object.entries(p);
+    // Au-dela, ce n'est pas un envoi de raccourci : inutile de fouiller.
+    if (e.length > 30) return [];
+    return e
+      .filter(([, v]) => v === '' || v === null
+        || (typeof v === 'string' && v.trim() === ''))
+      .map(([k]) => k);
+  };
+
+  // ┌─ DISTINGUER L'AVANT-PLAN DE L'ARRIERE-PLAN ──────────────────────┐
+  // │ iOS ne demande l'autorisation de lire Sante qu'au premier        │
+  // │ lancement EN AVANT-PLAN. Une automatisation ne peut pas poser    │
+  // │ la question : elle interroge, n'obtient rien, et n'echoue meme   │
+  // │ pas. Le raccourci envoie alors des champs vides, et l'API        │
+  // │ repond 202 comme si tout allait bien.                            │
+  // │                                                                   │
+  // │ C'est exactement ce piege qui a coute plusieurs essais ici. Le   │
+  // │ lanceur est dans l'en-tete `User-Agent` : autant s'en servir     │
+  // │ pour nommer la cause au lieu de laisser deviner.                 │
+  // └───────────────────────────────────────────────────────────────────┘
+  const arrierePlan = (h) => /BackgroundShortcutRunner/i.test(h?.['user-agent'] ?? '');
+
+  const items = rows.map(({ payload, headers, ...reste }) => ({
+    ...reste,
+    vides: reste.metrics_count ? [] : champsVides(payload),
+    arriere_plan: arrierePlan(headers),
+  }));
+  res.json({ items });
 }));
 
 /**
@@ -398,5 +508,94 @@ healthRouter.get('/health/hydration/today', asyncHandler(async (req, res) => {
     goal_basis: goal.basis,
     goal_breakdown: { base_ml: goal.base_ml, training_ml: goal.training_ml },
     ratio: Math.round((totalMl / goal.ml) * 100) / 100,
+  });
+}));
+
+/**
+ * Import de l'export Apple Santé, depuis l'application.
+ *
+ * ┌─ POURQUOI CETTE ROUTE ────────────────────────────────────────────┐
+ * │ L'analyseur existait et fonctionnait, mais ne s'invoquait qu'en   │
+ * │ ligne de commande, DANS le conteneur. Concrètement, il fallait    │
+ * │ un terminal et un `docker exec` pour faire entrer ses propres     │
+ * │ données de santé — ce qui revient à ne pas les faire entrer.      │
+ * │                                                                    │
+ * │ Le corps de la requête est ÉCRIT DIRECTEMENT SUR LE DISQUE, sans  │
+ * │ passer par la mémoire : un export complet pèse couramment         │
+ * │ plusieurs centaines de mégaoctets, et le bufferiser ferait tomber │
+ * │ le processus. C'est aussi pourquoi cette route est déclarée AVANT │
+ * │ tout analyseur de corps.                                          │
+ * │                                                                    │
+ * │ L'analyse elle-même réutilise le script existant, tel quel, en    │
+ * │ sous-processus : il est éprouvé, et le réécrire pour le rendre    │
+ * │ appelable aurait été le risque le plus inutile de cette passe.    │
+ * └────────────────────────────────────────────────────────────────────┘
+ */
+healthRouter.post('/health/import', asyncHandler(async (req, res) => {
+  const userId = userOf(req);
+  const depuis = String(req.query.since ?? '').trim();
+  if (depuis && !/^\d{4}-\d{2}-\d{2}$/.test(depuis)) {
+    return res.status(400).json({ error: 'Le paramètre « since » attend une date AAAA-MM-JJ.' });
+  }
+
+  const fichier = path.join(os.tmpdir(), `sante-${Date.now()}-${Math.random().toString(36).slice(2)}.xml`);
+  try {
+    await pipeline(req, fs.createWriteStream(fichier));
+  } catch (err) {
+    await fs.promises.rm(fichier, { force: true });
+    return res.status(400).json({ error: `Réception interrompue : ${err.message}` });
+  }
+
+  const taille = (await fs.promises.stat(fichier)).size;
+  // Un export vide ou tronqué produirait un import silencieusement nul.
+  if (taille < 1024) {
+    await fs.promises.rm(fichier, { force: true });
+    return res.status(400).json({
+      error: 'Fichier trop petit pour être un export Santé. Attendu : le fichier '
+        + '« export.xml » contenu dans l’archive, pas l’archive elle-même.',
+    });
+  }
+
+  const args = [
+    path.join(process.cwd(), 'src/scripts/import-apple-health.js'),
+    '--file', fichier,
+  ];
+  if (depuis) args.push('--since', depuis);
+
+  const sortie = await new Promise((resolve) => {
+    const enfant = spawn(process.execPath, args, {
+      env: { ...process.env, DEFAULT_USER_ID: userId },
+    });
+    let texte = '';
+    enfant.stdout.on('data', (d) => { texte += d; });
+    enfant.stderr.on('data', (d) => { texte += d; });
+    enfant.on('close', (code) => resolve({ code, texte }));
+  });
+
+  await fs.promises.rm(fichier, { force: true });
+
+  if (sortie.code !== 0) {
+    return res.status(500).json({
+      error: 'L’import a échoué.',
+      // Les dernières lignes suffisent à comprendre, et évitent de
+      // renvoyer des mégaoctets de journal dans une réponse HTTP.
+      detail: sortie.texte.split('\n').slice(-12).join('\n'),
+    });
+  }
+
+  const { rows } = await query(
+    `SELECT metric_type, COUNT(*)::int AS n,
+            to_char(MIN(recorded_at), 'YYYY-MM-DD') AS depuis,
+            to_char(MAX(recorded_at), 'YYYY-MM-DD') AS jusqu_a
+       FROM health_metrics
+      WHERE user_id = $1 AND source = 'apple_health'
+      GROUP BY 1 ORDER BY 2 DESC`,
+    [userId],
+  );
+
+  return res.json({
+    octets: taille,
+    resume: sortie.texte.split('\n').filter((l) => l.startsWith('[import]')).slice(-8),
+    metriques: rows,
   });
 }));

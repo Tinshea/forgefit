@@ -19,3 +19,10 @@ coverage/
 # Dataset téléchargé : reconstruit par `npm run ingest`, 16 Mo inutiles
 # dans l'historique.
 exercises.json
+
+# Captures d'ecran de developpement : utiles sur le moment, sans valeur
+# dans l'historique, et susceptibles de montrer des donnees reelles.
+*.png
+!frontend/public/**/*.png
+!frontend/src/**/*.png
+!docs/**/*.png

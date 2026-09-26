@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
+import DisciplineSheet from '../components/DisciplineSheet.jsx';
 import LoadSummary from '../components/LoadSummary.jsx';
 import { dec } from '../lib/format.js';
 
@@ -41,6 +42,9 @@ export default function SportsPage() {
   const [catalogue, setCatalogue] = useState(null);
   const [openCategory, setOpenCategory] = useState(null);
   const [sport, setSport] = useState(null);
+  // Choisir une discipline ouvre sa FICHE ; le formulaire n'arrive
+  // qu'ensuite, quand on a décidé d'enregistrer.
+  const [saisie, setSaisie] = useState(null);
   const [recent, setRecent] = useState([]);
   const [load, setLoad] = useState(null);
   const [error, setError] = useState(null);
@@ -69,25 +73,38 @@ export default function SportsPage() {
     <div className="grid">
       {flash && <div className="flash pop-in">{flash}</div>}
 
-      {sport && (
+      {/* ┌─ UN ÉCRAN À LA FOIS ──────────────────────────────────────┐
+          │ La fiche s'empilait AU-DESSUS de la liste : pour changer  │
+          │ de discipline il fallait faire défiler tout le manuel, et │
+          │ les séances récentes se retrouvaient à deux mille pixels  │
+          │ du haut. Une fiche ouverte occupe donc l'écran seule, et  │
+          │ « Fermer » ramène à la liste.                             │
+          └────────────────────────────────────────────────────────────┘ */}
+      {saisie ? (
         <SessionForm
-          sport={sport}
-          onCancel={() => setSport(null)}
+          sport={saisie}
+          onCancel={() => setSaisie(null)}
           onSaved={async (saved) => {
+            setSaisie(null);
             setSport(null);
             setFlash(`${saved.title} enregistrée · ${saved.session_load} de charge`);
             setTimeout(() => setFlash(null), 4000);
             await refresh();
           }}
         />
-      )}
-
-      <LoadSummary data={load} categories={catalogue.categories} />
-
+      ) : sport ? (
+        <DisciplineSheet
+          sportKey={sport.key}
+          onClose={() => setSport(null)}
+          onLog={(fiche) => setSaisie(fiche)}
+        />
+      ) : (
+        <>
       <div className="card">
-        <h2 className="card-title">Enregistrer une séance</h2>
+        <h2 className="card-title">Les disciplines</h2>
         <p className="card-sub">
-          {catalogue.total} sports, rangés par qualité physique dominante
+          {catalogue.total} sports, rangés par qualité physique dominante.
+          Ouvre-en un pour tout savoir de lui.
         </p>
 
         <div className="category-grid">
@@ -115,6 +132,8 @@ export default function SportsPage() {
         )}
       </div>
 
+      <LoadSummary data={load} categories={catalogue.categories} />
+
       <div className="card">
         <h2 className="card-title">Séances récentes</h2>
         <p className="card-sub">
@@ -128,6 +147,8 @@ export default function SportsPage() {
           </ul>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

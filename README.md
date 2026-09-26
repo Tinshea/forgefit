@@ -1671,6 +1671,133 @@ son contenu ; `min-width: 0` plus une élision sur le libellé.
 > tient l'appareil — `window.scrollTo(200, 0)` puis `scrollX` vaut **0 à 320,
 > 360, 390 et 430 px**, page d'Aliments comprise.
 
+### Atlas n'est pas ForgeFit
+
+`frontend/src/lib/modules.js` (`APP`)
+
+**ForgeFit est un module, pas l'application.** Le nom du premier module tenait
+lieu de nom d'application : l'en-tête affichait « ForgeFit » jusque dans le
+Carnet, qui n'a rien à voir, et le hub — qui n'est au-dessus d'aucun domaine en
+particulier — portait la marque d'un seul de ses quatre. Le bandeau de date y
+annonçait même la séance d'entraînement du jour.
+
+La coquille s'appelle **Atlas**. Elle porte le titre de l'onglet, le manifeste et
+l'icône installée. Chaque module affiche **son** nom dans l'en-tête, et ne reçoit
+le bandeau de programme que s'il le réclame (`showsProgram`) — ce qui est du
+contenu de module, pas de coquille.
+
+Chacun garde aussi sa direction artistique. ForgeFit est écarlate, biseauté,
+criard : c'est sa personnalité, et elle reste chez lui — l'aplat en diagonale
+derrière la marque disparaît dès qu'on le quitte. Atlas est une nuit sourde à
+accent laiton, qui n'appartient à aucun des quatre domaines et les accueille
+tous. Tout passe par les jetons de `:root[data-module='…']` : la coquille ne code
+aucune couleur en dur.
+
+### Le hub — quatre domaines, quatre tableaux
+
+`frontend/src/lib/constellations.js`, `components/Portrait.jsx`,
+`pages/HubPage.jsx` · route `#/hub`
+
+Au-dessus des modules, un ciel étoilé et quatre tableaux accrochés dedans :
+**Corps**, **Mental**, **Social**, **Savoir**. Chaque cadre de laiton contient un
+**personnage** — celui qui pousse, le calme, les autres, le liseur — posé sur la
+constellation de son domaine. On arrive là lorsque l'URL ne dit rien, et un lien
+profond continue d'ouvrir son écran directement : un favori vers la séance du
+jour ne doit pas imposer un détour.
+
+> **Le voile qui rendait illisible.** Les domaines éteints étaient posés à
+> `opacity: 0.44` — commode, et faux. L'opacité compose le texte avec son fond :
+> le contraste de la description tombait de 4,59 à **1,89**, très en dessous du
+> seuil de 4,5. Un domaine à venir devenait indéchiffrable. L'extinction passe
+> maintenant par la couleur, et les textes restent à pleine opacité ; ce qui dit
+> « vide » se voyait déjà sans voile — le cadre est gris au lieu du laiton, et
+> personne n'habite le tableau.
+>
+> Ma première mesure disait pourtant que tout passait. Elle lisait la couleur
+> calculée du texte sans tenir compte de l'opacité **héritée des ancêtres** —
+> exactement ce que l'œil, lui, voit. Un contrôle de contraste qui ignore
+> l'opacité cumulée ne mesure rien.
+
+> **Pourquoi des figures plutôt que des pictogrammes.** Un domaine de vie n'a pas
+> d'icône évidente : « Mental » ne se réduit pas à un cerveau, « Social » pas à
+> deux bonshommes. Une figure se retient — on finit par dire « le liseur », et
+> c'est ce qu'on attend d'un repère.
+>
+> Deux plans par figure : la silhouette, qui porte la lecture, et un accent clair
+> qui dit de quoi il s'agit. Deux dessins ont dû être refaits après les avoir
+> regardés : le profil de « Mental » n'était qu'une tache — sans trait ni modelé,
+> un nez et un menton ne se distinguent pas en aplat — et les compagnons de
+> « Social », peints en laiton, ressemblaient à des objets tenus à bout de bras.
+> Ce sont des gens : ils sont passés en silhouette, et l'accent ne garde que le
+> lien, qui est le vrai sujet.
+
+> **Un domaine n'est pas un module.** ForgeFit occupe « Corps », le Carnet occupe
+> « Savoir » ; mais « Corps » existerait encore si ForgeFit disparaissait. C'est
+> pourquoi les quatre domaines sont déclarés d'abord, et les modules viennent s'y
+> loger en déclarant leur `category` — jamais l'inverse.
+
+Deux domaines sont **éteints**. C'est le seul moyen de montrer une place vide sans
+mentir : une tuile grise qui n'ouvre rien est une promesse non tenue, alors qu'un
+ciel où rien ne brille se lit immédiatement pour ce qu'il est. Une constellation
+éteinte n'est d'ailleurs pas un `<button>` — l'annoncer comme tel enverrait un
+lecteur d'écran dans une impasse.
+
+Les tracés sont **figés**, jamais tirés au hasard : une constellation qui change
+de forme à chaque visite n'est plus un repère.
+
+Choisir un domaine déclenche un **plongeon** — la constellation avance vers l'œil
+et se dissout, les trois autres reculent. On entre dans un domaine au lieu de
+changer d'écran. `prefers-reduced-motion` court-circuite l'animation et navigue
+tout de suite : le mouvement est un ornement, jamais un péage.
+
+> **Le piège d'empilement qui m'a coûté le plus de temps.** Le titre du hub était
+> dans le DOM, blanc, mesurable, cliquable — et **invisible**. Les couches
+> d'ambiance (`.sky`, `.rays`, `.bands`) sont des enfants de `.app` en
+> `position: fixed; z-index: 0`. Or, dans l'ordre de peinture d'un contexte
+> d'empilement, le contenu en flux non positionné passe **avant** les éléments
+> positionnés de z-index 0 : un titre ordinaire se retrouve donc peint sous les
+> rayons. Les cartes y échappaient sans le savoir (`.card` est positionnée) et
+> `.page-title` aussi (son `transform: skewX()` crée à lui seul un contexte
+> d'empilement). Réglé par un `position: relative` sur `.hub`, qui fait remonter
+> tout le sous-arbre.
+>
+> Diagnostic instructif : `elementsFromPoint` désignait bien le titre au premier
+> plan, parce qu'il **ignore les éléments en `pointer-events: none`** — donc
+> toutes les couches d'ambiance. La sonde disait l'inverse de ce que l'écran
+> montrait. Ce qui a tranché : forcer un fond bleu et un contour vert sur
+> l'en-tête, et constater qu'il ne peignait toujours rien.
+
+`npm run check:nav` vérifie qu'aucun module n'est rangé dans un domaine
+inexistant, que deux modules ne se disputent pas le même, qu'un domaine allumé
+mène à un écran réel et qu'un domaine éteint ne porte aucune route. Le contrôle a
+été vu échouer avant d'être retenu. `#/hub` est un nom **réservé** : une section
+ainsi nommée serait analysée comme le hub et ne s'ouvrirait jamais.
+
+### Le téléphone prend tout l'écran
+
+`frontend/src/components/PhoneMenu.jsx`
+
+Un combiné de 360 px posé en biais au milieu d'un écran de 390 px n'est pas un
+objet : c'est une fenêtre qui rate son plein écran de trente pixels. Sur
+téléphone, il occupe donc toute la surface, se redresse et perd ses coins — on
+est dedans, plus devant. Il monte **depuis le bas**, d'où vient le doigt qui l'a
+ouvert, là où sur grand écran il arrive par la droite.
+
+Plein écran, il n'y a plus d'« à côté » où appuyer pour fermer : un bouton de
+fermeture de 42 px apparaît, et **seulement dans ce cas**. La rangée d'onglets
+s'arrête avant lui — posé par-dessus, il recouvrait la moitié de l'onglet
+« Carte ».
+
+> **Le retour n'existait pas.** Le panneau était monté sur `open &&` : à la
+> fermeture, React le retirait du DOM sur-le-champ, donc il n'y avait rien à
+> animer. Il entrait en glissant et disparaissait d'un coup. Un état « en train
+> de se fermer » garde le nœud le temps de l'animation de sortie — c'est la seule
+> façon d'animer un démontage. La sortie dure 260 ms contre 320 à l'aller : un
+> départ traîne toujours plus qu'une arrivée s'il dure autant.
+
+Pendant la sortie, la couche cesse d'accepter les clics : un appui sur un panneau
+qui s'efface déclencherait une action qu'on ne voit plus venir.
+
 ### Une coquille, des modules
 
 `frontend/src/lib/modules.js`
@@ -1958,6 +2085,166 @@ seconde moitié de la fenêtre.
 
 La cible calorique est tracée en **ligne de référence discontinue**, pas comme
 une seconde série : ce n'est pas une mesure.
+
+## Trois moteurs, pas un
+
+`frontend/scripts/check-browsers.mjs` · `npm run check:browsers`
+
+Tout le travail visuel avait été mesuré dans Blink. `check:screens` pilote
+Chrome par CDP et ne peut rien dire de Gecko ni de WebKit — or **c'est WebKit qui
+rend l'application sur iPhone**, là où elle est censée vivre. Le contrôle ouvre
+donc les quinze écrans dans les trois moteurs et compare une empreinte de
+disposition.
+
+Il a trouvé trois divergences réelles :
+
+- **`<select>` : 53 px dans Blink et Gecko, 30 px dans WebKit.** Le contrôle
+  natif impose ses métriques verticales et ignore la marge intérieure. Trente
+  pixels, c'est très en dessous des 44 px confortables au doigt — sur le moteur
+  du téléphone. Corrigé en renonçant à l'apparence native et en posant la
+  hauteur ; le chevron est alors dessiné, faute de quoi un select ne se
+  distinguerait plus d'un champ de texte.
+- **Le cadre du hub : 165 px partout, 179 px dans WebKit.** Avec
+  `box-sizing: border-box` et une marge intérieure, `aspect-ratio` s'applique à
+  la boîte de bordure dans Blink et Gecko ; WebKit en déduit la hauteur du
+  contenu et rajoute la marge. Quatre tableaux désalignés sur iPhone. Corrigé
+  par une hauteur explicite, qui ne se prête à aucune interprétation.
+- **13 `env(safe-area-inset-*)` sans valeur de repli.** Si la variable ne résout
+  pas, le `calc()` entier devient invalide et la déclaration disparaît : le
+  contenu passerait sous la barre basse. Un repli coûte zéro.
+
+> **Deux fois, l'outil a mesuré son propre reflet.** Une première tolérance de
+> 3 px signalait vingt-trois divergences : presque toutes venaient de métriques
+> de police qui s'accumulent ligne après ligne. Trente pixels sur une page de
+> cinq mille ne disent rien. Le seuil est devenu proportionnel — 8 px ou 4 %.
+>
+> Puis la neutralisation de `content-visibility`, appliquée à `*` pour forcer le
+> rendu complet, raccourcissait l'Aperçu de 400 px dans Blink et **fabriquait la
+> divergence qu'elle prétendait mesurer**. Elle ne vise plus que les huit
+> sélecteurs qui déclarent la propriété.
+
+## Comptes et sessions
+
+`backend/src/services/auth.js`, `routes/auth.js` · `frontend/src/components/AuthGate.jsx`
+
+L'utilisateur était lu dans un en-tête `x-user-id`, **sans aucune vérification** :
+n'importe qui pouvait lire et écrire les mesures de n'importe qui en changeant
+une ligne. Cohérent sur un réseau privé ; intenable dès qu'une adresse devient
+publique.
+
+**La migration ne verrouille personne dehors.** L'instance est dans l'un de deux
+états. *Non réclamée* : aucun mot de passe n'existe, l'API se comporte comme
+avant, et un bandeau propose de la protéger. *Réclamée* : un mot de passe existe,
+`x-user-id` cesse définitivement d'être cru, et toute requête exige une session.
+Le passage est à sens unique. Sans ce palier, la mise à jour aurait rendu l'API
+muette avant même qu'on puisse créer le compte — l'écran de connexion lui-même
+n'aurait rien pu lire.
+
+Le compte par défaut est **réclamé**, pas doublé : tout l'historique lui est
+attaché, et en créer un second le laisserait sur un compte devenu inaccessible.
+
+### Les choix qui méritent une phrase
+
+- **scrypt, pas Argon2id.** Argon2id est le premier choix de l'OWASP mais demande
+  une dépendance native. scrypt est le second choix de la même recommandation, et
+  il est dans Node. `N = 2^15` coûte 32 Mo par calcul — la mémoire est
+  précisément ce qu'un attaquant ne peut pas paralléliser à bon compte.
+- **Les paramètres voyagent avec l'empreinte** (`scrypt$N$r$p$sel$empreinte`) :
+  on peut durcir `N` sans invalider les anciennes, et les recalculer à la volée
+  à la connexion suivante, seul moment où le mot de passe en clair existe.
+- **Douze caractères, aucune règle de composition.** « Une majuscule, un chiffre,
+  un symbole » produit `Password1!`. La longueur est la seule contrainte qui
+  augmente vraiment le coût d'une attaque (NIST SP 800-63B, qui déconseille
+  explicitement ces règles).
+- **Une limite haute de 200 caractères**, pour une raison technique et non de
+  sécurité : sans elle, un mot de passe d'un mégaoctet ferait travailler scrypt
+  indéfiniment — un déni de service en une requête.
+- **On vérifie toujours un mot de passe, même sans compte.** Sinon une adresse
+  inconnue répondrait en une milliseconde et une adresse connue en cent, ce qui
+  révèle qui possède un compte.
+- **La temporisation plafonne à quinze minutes.** Un verrouillage définitif est
+  lui-même un déni de service : il suffirait d'échouer exprès pour fermer le
+  compte de quelqu'un.
+- **Le jeton n'est jamais stocké en clair.** 256 bits tirés au sort, donc rien à
+  deviner et aucune raison de le passer à une dérivation lente ; SHA-256 suffit
+  à ce qu'une fuite de la table ne livre aucune session.
+- **`Secure` suit le protocole réel.** Forcé en permanence, le cookie serait
+  rejeté sur un réseau local en clair et la connexion échouerait sans message.
+
+> **Ce parcours a été éprouvé sur l'instance réelle, puis l'état d'origine
+> rétabli** — adresse, nom, mot de passe et sessions — pour ne pas enfermer son
+> propriétaire derrière un mot de passe qu'il n'a pas choisi.
+
+## Ce que l'audit a trouvé
+
+Un audit fonctionnel a été mené en simulant une journée d'usage complète — séance
+annoncée, démarrée, séries enregistrées, clôturée — puis en comparant **chaque
+route de l'API à ce que l'interface en expose réellement**. Le parcours principal
+tenait ; cinq défauts d'usage quotidien non.
+
+> **Une correction de méthode, d'abord.** La première passe d'audit affichait
+> douze erreurs graves. C'étaient mes propres chemins d'API, inventés dans le
+> script de test, pas l'application. Les vrais chemins ont été relus dans le
+> client avant de conclure quoi que ce soit.
+
+### On ne pouvait pas corriger une série
+
+`DELETE /workouts/:id/sets/:setId` existait depuis l'origine ; **l'interface ne
+l'exposait pas**. Une faute de frappe — 80 kg au lieu de 8 — restait dans le
+volume et dans la charge pour toujours. Pour une application de musculation
+quotidienne, c'était le défaut le plus pénible.
+
+On supprime plutôt qu'on édite : une série est un fait daté, et la refaire est
+plus clair que la réécrire. Confirmation demandée, parce que le bouton est à
+quelques pixels de la valeur qu'on vient de lire.
+
+### Le coach classait mal TOUTES les séances de musculation
+
+`frontend`… non : `backend/src/services/session-nature.js`
+
+La nature d'une séance était devinée à partir de mots dans le titre :
+
+```js
+if (/physique|force|puissance|muscu/.test(titre)) return 'physique';
+```
+
+Testée sur les **dix-huit titres que les modèles de programme produisent
+réellement** — « Bas du corps A », « Poussée B », « Squat lourd » — cette règle
+n'en reconnaissait **aucun**. Toute la musculation était comptée comme du temps
+technique, et l'équilibre hebdomadaire proposé était donc systématiquement faux.
+
+La classification s'appuie désormais sur des **données structurées**, par ordre
+de fiabilité : le `focus` du jour de programme, puis la catégorie du sport, et le
+titre seulement en dernier recours. Un test rejoue les dix-huit titres.
+
+> **Ce qui distingue « technique » de « physique »** n'est pas « facile » contre
+> « dur » : c'est « j'apprends un geste » contre « je développe une qualité ».
+> Une heure de judo est du temps technique même si elle épuise ; une heure de
+> rameur est du temps physique même si elle est monotone.
+
+### Le bouton « Démarrer la séance » ne démarrait rien
+
+Il naviguait vers l'écran Séance, où il fallait recliquer sur la même séance.
+Il ouvre maintenant la séance prévue — en réutilisant celle déjà en cours s'il y
+en a une — puis navigue : l'écran la retrouve au montage.
+
+### Aucune déconnexion
+
+L'application avait gagné un système de comptes complet et **aucun moyen d'en
+sortir** : `api.logout()` existait sans qu'aucun écran ne l'appelle. Une carte
+Compte rejoint le profil, visible seulement quand l'instance est protégée.
+
+### Des écrans qui manquaient
+
+Dix fonctions du client d'API n'étaient appelées par aucun écran. Deux méritaient
+le leur :
+
+- **Recettes** — vingt-cinq recettes en base, servies par l'API, invisibles
+  depuis l'application qui les contient. Tri par densité protéique, par temps de
+  préparation ou par prix pour 10 g de protéines.
+- **Syllabus** — l'API savait servir le programme de grade et enregistrer ce qui
+  est acquis depuis plusieurs versions. Sans écran, le coach proposait
+  éternellement les mêmes techniques, puisque rien ne pouvait jamais être coché.
 
 ## Tests
 

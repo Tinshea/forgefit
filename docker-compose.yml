@@ -39,6 +39,15 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-forgefit}:${POSTGRES_PASSWORD:-forgefit}@db:5432/${POSTGRES_DB:-forgefit}
       # Shared secret for HMAC verification of inbound health webhooks.
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-secret-change-me}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN:-}
+      # Nom mDNS de la machine hote (« quelquechose.local »).
+      #
+      # Une adresse IP de reseau local est distribuee par le routeur et
+      # CHANGE : au redemarrage, la machine est passee de .148 a .144, et
+      # l'adresse figee dans le raccourci iOS est devenue fausse du jour
+      # au lendemain. Le nom mDNS, lui, ne bouge pas — l'iPhone le
+      # resout nativement par Bonjour.
+      MDNS_HOST: ${MDNS_HOST:-}
       # Comma-separated origins allowed to call the API from a browser.
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
       EXERCISES_DATASET_URL: ${EXERCISES_DATASET_URL:-https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main/data/exercises.json}

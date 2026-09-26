@@ -2,7 +2,8 @@ import {
   Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState,
 } from 'react';
 import {
-  SECTIONS, MODULES, moduleOf, defaultRoute, findRoute, parseHash, toHash,
+  SECTIONS, MODULES, APP, moduleOf, defaultRoute, findRoute, parseHash, toHash,
+  HUB, isHub,
 } from './lib/navigation.js';
 
 // Écrans de saisie : chargés d'emblée. Ce sont eux le chemin critique —
@@ -31,6 +32,9 @@ const ProgramPage = lazy(() => import('./pages/ProgramPage.jsx'));
 const ExerciseLibrary = lazy(() => import('./pages/ExerciseLibrary.jsx'));
 const FoodCatalogue = lazy(() => import('./pages/FoodCatalogue.jsx'));
 const SportsPage = lazy(() => import('./pages/SportsPage.jsx'));
+const CoachPage = lazy(() => import('./pages/CoachPage.jsx'));
+const RecipesPage = lazy(() => import('./pages/RecipesPage.jsx'));
+const SyllabusPage = lazy(() => import('./pages/SyllabusPage.jsx'));
 const LevelPage = lazy(() => import('./pages/LevelPage.jsx'));
 const NotesPage = lazy(() => import('./pages/NotesPage.jsx'));
 
@@ -47,6 +51,7 @@ const NotesPage = lazy(() => import('./pages/NotesPage.jsx'));
  * └────────────────────────────────────────────────────────────────────┘
  */
 const PhoneMenu = lazy(() => import('./components/PhoneMenu.jsx'));
+const HubPage = lazy(() => import('./pages/HubPage.jsx'));
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'));
 const TrendsPage = lazy(() => import('./pages/TrendsPage.jsx'));
 const BenchmarkPage = lazy(() => import('./pages/BenchmarkPage.jsx'));
@@ -61,13 +66,16 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage.jsx'));
  * soit vérifiable hors navigateur.
  */
 const PAGES = {
+  coach: CoachPage,
   seance: FieldLogger,
   calendrier: CalendarPage,
   programme: ProgramPage,
   exercices: ExerciseLibrary,
   journal: NutritionPage,
   aliments: FoodCatalogue,
+  recettes: RecipesPage,
   sports: SportsPage,
+  syllabus: SyllabusPage,
   niveau: LevelPage,
   notes: NotesPage,
   apercu: Dashboard,
@@ -227,13 +235,38 @@ function useTopbarHeight(ref) {
   }, [ref]);
 }
 
+/**
+ * La marque du module courant.
+ *
+ * Elle disait « ForgeFit » partout, Carnet compris : le nom du premier
+ * module tenait lieu de nom d'application. Chaque module affiche
+ * désormais le sien, et la coquille n'impose que le retour au hub.
+ */
+function Brand({ module: mod }) {
+  if (mod.brandParts) {
+    const [lead, tail] = mod.brandParts;
+    return <>{lead}<span>{tail}</span></>;
+  }
+  return <>{mod.label}</>;
+}
+
 export default function App() {
   const isDesktop = () => window.matchMedia('(min-width: 900px)').matches;
 
   const topbarRef = useRef(null);
   const [phoneOpen, setPhoneOpen] = useState(false);
+  // ┌─ ON ARRIVE PAR LE HUB ────────────────────────────────────────┐
+  // │ Sans fragment d'URL, on atterrit sur le tableau d'étoiles : il │
+  // │ est EN AMONT des modules, et y passer est le geste qui donne   │
+  // │ son sens à la coquille.                                        │
+  // │                                                                 │
+  // │ Un lien profond, lui, ouvre toujours directement son écran —   │
+  // │ un favori vers la séance du jour ne doit pas imposer un détour.│
+  // │ `defaultRoute` reste la cible par défaut À L'INTÉRIEUR d'un    │
+  // │ module, ce que le contrôle de navigation vérifie toujours.     │
+  // └─────────────────────────────────────────────────────────────────┘
   const [route, setRoute] = useState(
-    () => parseHash(window.location.hash) ?? defaultRoute(isDesktop()),
+    () => parseHash(window.location.hash) ?? HUB,
   );
 
   // Synchronisation avec l'historique du navigateur.
@@ -262,6 +295,12 @@ export default function App() {
     window.scrollTo({ top: 0 });
   }, []);
 
+  const goHub = useCallback(() => {
+    setRoute(HUB);
+    playLater('cancel');
+    window.scrollTo({ top: 0 });
+  }, []);
+
   useTopbarHeight(topbarRef);
 
   // Onglet caché : on marque la racine pour que la feuille de style
@@ -287,22 +326,31 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  const current = findRoute(route.section, route.page);
-  if (!current) return null;
-  const { section, page } = current;
-  const Component = PAGES[page.key];
+  // Le hub n'a ni section ni page : tout ce qui en dépend devient donc
+  // facultatif ici, et la coquille s'allège d'autant plus bas.
+  const hub = isHub(route);
+  const current = hub ? null : findRoute(route.section, route.page);
+  const section = current?.section ?? null;
+  const page = current?.page ?? null;
+  const Component = page ? PAGES[page.key] : null;
 
-  const routeToken = `${section.key}/${page.key}`;
+  const routeToken = hub ? 'hub' : `${section.key}/${page.key}`;
   // Le module courant se déduit de la section : l'URL ne le porte pas,
   // et c'est voulu — ajouter un module ne doit casser aucun lien.
-  const currentModule = moduleOf(section.key);
+  const currentModule = hub ? null : moduleOf(section.key);
 
   // Le module courant est publié sur la racine : c'est ce qui permet à
   // un module d'apporter sa PROPRE identité visuelle, sans que la
-  // coquille ait à connaître ses couleurs.
+  // coquille ait à connaître ses couleurs. Le hub n'appartient à aucun
+  // module et pose sa propre valeur, `hub`.
+  const moduleKey = currentModule?.key ?? 'hub';
   useEffect(() => {
-    document.documentElement.setAttribute('data-module', currentModule.key);
-  }, [currentModule.key]);
+    document.documentElement.setAttribute('data-module', moduleKey);
+  }, [moduleKey]);
+
+  // Placé APRÈS tous les crochets : un retour anticipé au-dessus d'eux
+  // changerait leur nombre d'un rendu à l'autre, ce que React interdit.
+  if (!hub && !current) return null;
 
   return (
     <div className="app">
@@ -314,6 +362,10 @@ export default function App() {
           derrière le contenu — et toutes en `transform` ou en opacité,
           donc aucune ne se repeint. */}
       <span className="sky" aria-hidden="true" />
+      {/* Les étoiles sont posées JUSTE APRÈS le ciel et avant les
+          rayons : elles sont dans le fond, pas devant l'affiche. */}
+      <span className="stars-loin" aria-hidden="true" />
+      <span className="stars" aria-hidden="true" />
       <span className="rays" aria-hidden="true" />
       <span className="bands" aria-hidden="true" />
       <span className="tear" aria-hidden="true" />
@@ -326,22 +378,34 @@ export default function App() {
       <Suspense fallback={null}>
         <PhoneMenu
           navigate={go}
-          currentModule={currentModule.key}
+          currentModule={currentModule?.key ?? null}
           open={phoneOpen}
           onOpenChange={setPhoneOpen}
         />
       </Suspense>
 
       <header className="topbar" ref={topbarRef}>
-        <div className="brand">
-          Forge<span>Fit</span>
-        </div>
+        {/* La marque est le chemin du retour : c'est la convention que
+            tout le monde connaît, et elle évite un bouton de plus. Sur
+            le hub lui-même elle ne mène nulle part, donc n'est plus un
+            bouton — un bouton qui ne fait rien est un piège. */}
+        {hub ? (
+          <div className="brand">{APP.name}</div>
+        ) : (
+          <button
+            type="button" className="brand brand-link"
+            onClick={goHub} aria-label={`Revenir au hub ${APP.name}`}
+          >
+            <Brand module={currentModule} />
+          </button>
+        )}
 
-        <DateHud navigate={go} />
+        <DateHud navigate={go} bare={hub || !currentModule.showsProgram} />
 
         <div className="topbar-right">
           <WeatherHud />
         {/* Sections — masquées sur mobile, où la barre basse prend le relais */}
+        {!hub && (
         <nav className="sections-desktop" aria-label={`Sections — ${currentModule.label}`}>
           {currentModule.sections.map((s) => (
             <button
@@ -356,13 +420,14 @@ export default function App() {
             </button>
           ))}
         </nav>
+        )}
         <SoundToggle />
         </div>
       </header>
 
       {/* Pages de la section courante. Une section à page unique n'a pas
           besoin de sous-navigation. */}
-      {section.pages.length > 1 && (
+      {!hub && section.pages.length > 1 && (
         <div className="subnav">
           <SubNav section={section} activeKey={page.key} onPick={go} />
         </div>
@@ -372,25 +437,38 @@ export default function App() {
           elle, l'animation d'entrée ne rejouerait pas quand on passe
           d'une page à l'autre d'une même section. */}
       <main className="content page-enter" key={routeToken}>
-        {/* Titre d'écran. C'était jusqu'ici une ligne de gris, et
-            l'application n'avait AUCUN `h1` — un lecteur d'écran ne
-            pouvait pas dire sur quelle page il se trouvait. Il devient
-            à la fois la pièce graphique la plus imposante de l'écran
-            et le titre de niveau 1 qui manquait. */}
-        <header className="page-head">
-          <h1 className="page-title">{page.label}</h1>
-          <p className="page-hint">{page.hint}</p>
-        </header>
-        <Suspense fallback={<p className="empty">Chargement…</p>}>
-          {/* `navigate` permet à un écran d'en ouvrir un autre : démarrer
-              une séance depuis le calendrier doit conduire au mode
-              Terrain, pas laisser l'utilisateur la chercher. */}
-          <Component navigate={go} />
-        </Suspense>
+        {hub ? (
+          <Suspense fallback={<p className="empty">Chargement…</p>}>
+            {/* Le hub porte son propre titre : il n'a ni section ni
+                page, donc rien à annoncer dans l'en-tête habituelle. */}
+            <HubPage navigate={go} />
+          </Suspense>
+        ) : (
+          <>
+            {/* Titre d'écran. C'était jusqu'ici une ligne de gris, et
+                l'application n'avait AUCUN `h1` — un lecteur d'écran ne
+                pouvait pas dire sur quelle page il se trouvait. Il devient
+                à la fois la pièce graphique la plus imposante de l'écran
+                et le titre de niveau 1 qui manquait. */}
+            <header className="page-head">
+              <h1 className="page-title">{page.label}</h1>
+              <p className="page-hint">{page.hint}</p>
+            </header>
+            <Suspense fallback={<p className="empty">Chargement…</p>}>
+              {/* `navigate` permet à un écran d'en ouvrir un autre : démarrer
+                  une séance depuis le calendrier doit conduire au mode
+                  Terrain, pas laisser l'utilisateur la chercher. */}
+              <Component navigate={go} />
+            </Suspense>
+          </>
+        )}
       </main>
 
       {/* Barre basse sur mobile : atteignable au pouce, contrairement à
-          une barre haute sur un grand téléphone. */}
+          une barre haute sur un grand téléphone. Absente du hub, qui
+          n'appartient à aucun module et n'a donc aucune section à
+          proposer — il est lui-même la navigation de premier rang. */}
+      {!hub && (
       <nav className="bottombar" aria-label={`Sections — ${currentModule.label}`}>
         {currentModule.sections.map((s) => (
           <button
@@ -419,6 +497,7 @@ export default function App() {
           <span className="bottomtab-label">Apps</span>
         </button>
       </nav>
+      )}
     </div>
   );
 }

@@ -93,7 +93,7 @@ html, body {
 body {
   /* Zones sures iOS : la barre d'action basse ne doit pas passer sous
      l'indicateur d'accueil. */
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 button {
@@ -111,6 +111,29 @@ input, select {
   border: 1px solid var(--border);
   border-radius: var(--radius-s);
   padding: 12px 14px;
+}
+
+/* ┌─ LE SELECT NATIF N'OBÉIT PAS À LA MARGE INTÉRIEURE ──────────────┐
+   │ `padding: 12px 14px` donne 53 px de haut dans Blink et Gecko, et │
+   │ 30 px dans WebKit : le contrôle natif y impose ses propres        │
+   │ métriques verticales et ignore la marge. Trente pixels, c'est    │
+   │ bien en dessous des 44 px confortables au doigt — et WebKit est  │
+   │ précisément le moteur de l'iPhone, là où l'on touche l'écran.    │
+   │                                                                    │
+   │ On renonce donc à l'apparence native et on pose la hauteur. Le   │
+   │ chevron doit alors être dessiné : sans `appearance`, il          │
+   │ disparaît, et un select sans chevron ne se distingue plus d'un   │
+   │ champ de texte.                                                   │
+   └────────────────────────────────────────────────────────────────────┘ */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 46px;
+  padding-right: 38px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23898781' stroke-width='2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 12px 8px;
 }
 
 input:focus-visible, select:focus-visible, button:focus-visible {
@@ -211,7 +234,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   background: rgba(13, 13, 13, 0.96);
   backdrop-filter: blur(14px);
   border-top: 1px solid var(--border);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (min-width: 700px) {
@@ -256,7 +279,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   padding: 16px;
   /* Dégage la barre basse, sinon elle recouvre le dernier élément de
      chaque page — typiquement un bouton de validation. */
-  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
 }
 
 @media (min-width: 700px) {
@@ -284,13 +307,36 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   color: var(--text-muted);
 }
 
-.grid { display: grid; gap: 14px; }
+/* ┌─ `minmax(0, 1fr)` ET NON `1fr` ──────────────────────────────────┐
+   │ Une piste de grille vaut `minmax(auto, 1fr)` par defaut, et ce    │
+   │ `auto` signifie « au moins la taille min-content de l'enfant ».   │
+   │ Un enfant qui contient un mot insecable — un nom d'aliment long,  │
+   │ un titre de recette — impose donc sa largeur a la colonne, qui    │
+   │ impose la sienne a la page.                                       │
+   │                                                                    │
+   │ Mesure sur l'ecran Aliments : 1365 px de grille pour 390 px       │
+   │ d'ecran. Et comme `html` porte `overflow-x: clip`, ce             │
+   │ debordement etait ROGNE, pas defilable : le contenu au-dela       │
+   │ n'existait plus pour l'utilisateur.                               │
+   │                                                                    │
+   │ `minmax(0, …)` autorise la piste a descendre sous le min-content  │
+   │ de son contenu. Le texte se coupe alors, ce qui est le            │
+   │ comportement voulu.                                               │
+   └────────────────────────────────────────────────────────────────────┘ */
+.grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+}
 
 @media (min-width: 900px) {
   .content { padding: 24px; }
-  .grid-2 { grid-template-columns: 1fr 1fr; }
-  .grid-3 { grid-template-columns: repeat(3, 1fr); }
-  .grid-dash { grid-template-columns: 1.1fr 0.9fr; align-items: start; }
+  .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid-dash {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    align-items: start;
+  }
 }
 
 /* --- Tuiles de statistiques ----------------------------------------- */
@@ -574,7 +620,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   left: 50%;
   /* Au-dessus de la barre basse, sinon la confirmation d'une série
      s'affiche derrière elle. */
-  bottom: calc(84px + env(safe-area-inset-bottom));
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   padding: 12px 20px;
   border-radius: 999px;
@@ -587,7 +633,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 
 /* Sans barre basse sur grand écran, la contrainte disparaît. */
 @media (min-width: 700px) {
-  .toast { bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
 }
 
 .legend {
@@ -3361,7 +3407,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 .phone-button {
   position: fixed;
   right: 20px;
-  bottom: calc(84px + env(safe-area-inset-bottom));
+  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   z-index: 55;
   width: 46px;
   height: 66px;
@@ -3680,8 +3726,8 @@ input:focus-visible, select:focus-visible, button:focus-visible {
   z-index: 95;
   background: var(--plane);
   padding: 14px;
-  padding-top: calc(14px + env(safe-area-inset-top));
-  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  padding-top: calc(14px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
   display: flex;
   animation: ff-fade 200ms var(--ease-soft);
 }
@@ -3904,7 +3950,7 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 @media (display-mode: standalone), (display-mode: fullscreen) {
   /* La barre du haut passe SOUS l'encoche. Sans ce decalage, la marque
      se retrouve derriere l'heure du telephone. */
-  .topbar { padding-top: calc(14px + env(safe-area-inset-top)); }
+  .topbar { padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
 
   /* La sous-navigation collante suit le meme decalage, sinon elle
      recouvre la barre du haut au defilement. */
@@ -3912,13 +3958,13 @@ input:focus-visible, select:focus-visible, button:focus-visible {
 
   /* Barre basse : la zone de l'indicateur d'accueil doit rester libre,
      sinon le balayage de fermeture declenche un onglet. */
-  .bottombar { padding-bottom: calc(env(safe-area-inset-bottom) + 4px); }
+  .bottombar { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 4px); }
 
-  .content { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .content { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
 
   /* Le bouton du telephone remonte au-dessus de la barre basse
      elargie. */
-  .phone-button { bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .phone-button { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
 
   /* Pas de selection de texte accidentelle en faisant defiler : dans
      une application installee, un appui long doit faire defiler, pas
@@ -4006,6 +4052,8 @@ html[data-hidden] .rays,
 html[data-hidden] .bands::before,
 html[data-hidden] .bands::after,
 html[data-hidden] .depth,
+html[data-hidden] .stars,
+html[data-hidden] .stars-loin,
 html[data-hidden] .motes,
 html[data-hidden] .weather-layer {
   animation-play-state: paused;
@@ -4059,51 +4107,69 @@ html[data-hidden] .weather-layer {
    │ Tout ce qui suit passe par les JETONS deja en place : aucune     │
    │ regle de composant n'est reecrite, aucune classe n'est dupliquee.│
    │ Redefinir une vingtaine de variables suffit a passer d'une       │
-   │ affiche ecarlate et penchee a un carnet de papier. C'est la      │
+   │ affiche ecarlate et penchee a une feuille quadrillee. C'est la   │
    │ preuve que la couche de jetons tenait vraiment.                  │
    │                                                                   │
-   │ Le parti pris est l'INVERSE exact de ForgeFit : chaud au lieu de │
-   │ froid, papier au lieu d'encre, serif au lieu de condensee,       │
-   │ arrondi au lieu de tranche, droit au lieu de penche, calme au    │
-   │ lieu de crie. Un carnet de notes ne doit pas hurler.             │
+   │ Le parti pris est l'INVERSE de ForgeFit : papier au lieu         │
+   │ d'encre, quadrillage au lieu de rayons, capitales larges au      │
+   │ lieu de condensees, droit au lieu de penche, calme au lieu de    │
+   │ crie. Une page de notes ne doit pas hurler.                      │
+   │                                                                   │
+   │ Il reste FROID, comme le reste. Une premiere version partait     │
+   │ sur de l'ivoire chaud, de l'encre brune et une serif : c'etait   │
+   │ joli et ca ne ressemblait a rien d'autre dans l'application —    │
+   │ un ilot de papier ancien au milieu d'une affiche. Le bleu de     │
+   │ calque garde l'inversion sans changer de famille.                │
    └───────────────────────────────────────────────────────────────────┘
    ===================================================================== */
 
 :root[data-module='carnet'] {
-  /* Papier ivoire et encre brune, pas noir et ecarlate. */
-  --plane:        #efe7d6;
-  --surface-1:    #f7f1e4;
-  --surface-2:    #ece2cd;
-  --surface-3:    #e2d5bc;
+  /* Papier de calque : clair et FROID. Chaque valeur est verifiee a
+     4,5:1 au moins contre la surface la plus sombre ou elle apparait
+     (--surface-3), pas seulement contre la plus claire. */
+  color-scheme: light;
 
-  --text-primary:   #2a2018;
-  --text-secondary: #55483a;
-  --text-muted:     #8a7a66;
+  --plane:        #dbe3ec;
+  --surface-1:    #eef2f6;
+  --surface-2:    #dde4ec;
+  --surface-3:    #ccd6e2;
 
-  --grid:   #d9cbb2;
-  --axis:   #c8b795;
-  --border: rgba(42, 32, 24, 0.14);
+  --text-primary:   #16212e;
+  --text-secondary: #39485a;
+  /* #4e5c6e et pas plus clair : 4,64:1 sur --surface-3, le pire cas.
+     Une teinte plus douce passait sur la carte et echouait sur les
+     champs, ou ce texte sert justement d'etiquette. */
+  --text-muted:     #4e5c6e;
 
-  --brand:      #7a5c3a;
-  --brand-deep: #5d4428;
-  --brand-dark: #3d2c19;
-  --gold:       #b0873c;
-  --ink:        #2a2018;
+  --grid:   #c2cedb;
+  --axis:   #a9b8c8;
+  --border: rgba(22, 33, 46, 0.16);
 
-  --series-1: #3f6b8f;
-  --series-2: #5f7a43;
+  --brand:      #14496f;
+  --brand-deep: #123a58;
+  --brand-dark: #0b2740;
+  /* --gold est un APLAT sous du texte sombre (`.flash` y pose un
+     #1a1a19 en dur) autant qu'une encre sur le bandeau de marque.
+     Il doit donc rester CLAIR : une teinte foncee cassait `.flash`
+     en meme temps qu'elle reparait la marque. */
+  --gold:       #7fc4dc;
+  --ink:        #16212e;
 
-  --good:     #4d7a3a;
-  --warning:  #a8761c;
-  --critical: #9c3b2a;
+  --series-1: #1a6098;
+  --series-2: #2a6b45;
+
+  --good:     #2a6b45;
+  --warning:  #8a5c00;
+  --critical: #a52a1e;
 
   /* Rien ne penche : le mouvement de ForgeFit n'a pas sa place ici. */
   --slant: 0deg;
   --notch: 0px;
 
-  /* Une serif : l'opposé d'une condensee en capitales. */
-  --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype',
-    'Times New Roman', serif;
+  /* Une grotesque large, posee a plat : l'oppose d'une condensee
+     penchee, sans passer par une serif de livre. */
+  --font-display:
+    'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
 }
 
 /* --- Le fond : du papier reglee, pas des rayons ------------------------- */
@@ -4119,14 +4185,13 @@ html[data-hidden] .weather-layer {
 
 :root[data-module='carnet'] .sky {
   background:
-    /* Marge rouge du cahier d'ecolier. */
-    linear-gradient(90deg, transparent 0 62px, rgba(156, 59, 42, 0.30) 62px 63px, transparent 63px),
-    /* Lignes horizontales. */
-    repeating-linear-gradient(180deg, transparent 0 31px, rgba(42, 32, 24, 0.07) 31px 32px),
-    /* Grain de papier. */
-    radial-gradient(circle at center, rgba(42, 32, 24, 0.035) 0.6px, transparent 0.9px),
+    /* Le quadrillage : deux pas, un fin et un fort tous les cinq
+       carreaux, comme sur une feuille de calque. */
+    repeating-linear-gradient(90deg, transparent 0 39px, rgba(20, 73, 111, 0.09) 39px 40px),
+    repeating-linear-gradient(180deg, transparent 0 39px, rgba(20, 73, 111, 0.09) 39px 40px),
+    repeating-linear-gradient(90deg, transparent 0 199px, rgba(20, 73, 111, 0.16) 199px 200px),
+    repeating-linear-gradient(180deg, transparent 0 199px, rgba(20, 73, 111, 0.16) 199px 200px),
     var(--plane);
-  background-size: auto, auto, 5px 5px, auto;
 }
 
 /* --- Les formes : arrondies, jamais tranchees --------------------------- */
@@ -4143,7 +4208,7 @@ html[data-hidden] .weather-layer {
 :root[data-module='carnet'] .page-hint,
 :root[data-module='carnet'] .error-banner {
   clip-path: none;
-  border-radius: 4px;
+  border-radius: 2px;
 }
 
 :root[data-module='carnet'] .grid > .card {
@@ -4151,7 +4216,7 @@ html[data-hidden] .weather-layer {
   margin-left: 0;
   margin-right: 0;
   /* Une ombre DOUCE : du papier pose, pas du papier decoupe. */
-  filter: drop-shadow(0 2px 6px rgba(42, 32, 24, 0.13));
+  filter: drop-shadow(0 2px 6px rgba(22, 33, 46, 0.16));
   border-left: 1px solid var(--grid);
   background: var(--surface-1);
 }
@@ -4188,8 +4253,7 @@ html[data-hidden] .weather-layer {
 }
 
 :root[data-module='carnet'] .page-hint,
-:root[data-module='carnet'] .stat-label,
-:root[data-module='carnet'] .bottomtab-label {
+:root[data-module='carnet'] .stat-label {
   text-transform: none;
   letter-spacing: normal;
   font-weight: 600;
@@ -4198,6 +4262,17 @@ html[data-hidden] .weather-layer {
   box-shadow: none;
   transform: none;
   padding: 0;
+}
+
+/* Le libelle d'onglet du bas partageait cette regle, et donc son
+   `color: var(--text-muted)`. Or il ne vit pas sur du papier : il vit
+   sur la barre bleue, ou une encre sombre disparait. Il HERITE
+   desormais de son onglet, qui sait, lui, sur quoi il est pose. */
+:root[data-module='carnet'] .bottomtab-label {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+  color: inherit;
 }
 
 /* La marque est posee SUR l'aplat brun : elle doit donc etre claire,
@@ -4241,6 +4316,27 @@ html[data-hidden] .weather-layer {
 :root[data-module='carnet'] .subnav { border-bottom-color: var(--grid); }
 :root[data-module='carnet'] .bottombar,
 :root[data-module='carnet'] .topbar { border-color: var(--brand-deep); }
+
+/* ┌─ LA BARRE DU BAS NE SUIT PAS LES JETONS ────────────────────────┐
+   │ `.bottombar` porte un `rgba(13, 13, 13, .96)` ECRIT EN DUR : ce  │
+   │ n'est pas une variable, donc le theme ne l'atteignait pas. Elle  │
+   │ restait noire sous une page claire — et surtout ses libelles     │
+   │ prenaient `--text-muted` et `--brand`, devenus sombres ici :     │
+   │ 2,7:1 et moins contre le noir. L'onglet actif etait illisible.   │
+   │                                                                   │
+   │ On la repeint donc dans le bleu du bandeau du haut, et on lui    │
+   │ redonne des libelles clairs. Mesure, alpha compris : 6,24:1      │
+   │ pour l'inactif, 6,11:1 pour l'actif.                             │
+   └───────────────────────────────────────────────────────────────────┘ */
+:root[data-module='carnet'] .bottombar {
+  background: var(--brand-deep);
+  border-top-color: var(--brand-dark);
+}
+:root[data-module='carnet'] .bottomtab { color: rgba(238, 242, 246, 0.72); }
+:root[data-module='carnet'] .bottomtab[aria-current='page'] { color: var(--gold); }
+:root[data-module='carnet'] .bottomtab[aria-current='page']::before {
+  background: var(--gold);
+}
 
 :root[data-module='carnet'] .btn-primary {
   box-shadow: none;
@@ -4392,7 +4488,7 @@ html[data-hidden] .weather-layer {
   /* --- 2. Le chassis se resserre -------------------------------------- */
   .topbar { padding: 9px 12px 16px; }
   .brand { font-size: 17px; }
-  .content { padding: 14px 12px calc(96px + env(safe-area-inset-bottom)); }
+  .content { padding: 14px 12px calc(96px + env(safe-area-inset-bottom, 0px)); }
 
   /* --- 3. Les cibles tactiles atteignent 44 px ------------------------- */
   .subtab {
@@ -4542,7 +4638,7 @@ html { overflow-x: clip; }
 /* Repli pour les navigateurs sans `clip` : les couches decoratives se
    chargent elles-memes de ne pas depasser. */
 @supports not (overflow-x: clip) {
-  .sky, .rays, .bands, .tear, .depth, .motes, .weather-layer, .vignette {
+  .sky, .rays, .bands, .tear, .depth, .motes, .stars, .stars-loin, .weather-layer, .vignette {
     max-width: 100vw;
     left: 0;
     right: 0;
@@ -4590,6 +4686,1353 @@ html { overflow-x: clip; }
    Doit rester le DERNIER bloc du fichier : il neutralise tout ce qui
    precede. Une animation ajoutee apres lui y echapperait.
    ===================================================================== */
+
+/* ═══════════════════════════════════════════════════════════════════
+   LE HUB — quatre domaines, en constellations
+
+   Il vit AU-DESSUS des modules : pas de barre de sections, pas de
+   barre basse, pas de titre de page. L'écran entier est un ciel, et
+   les quatre tracés sont la seule chose à y faire.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.hub {
+  /* ┌─ POURQUOI `position: relative` ICI ─────────────────────────────┐
+     │ Les couches d'ambiance (`.sky`, `.rays`, `.bands`…) sont des    │
+     │ ENFANTS de `.app`, en `position: fixed; z-index: 0`.            │
+     │                                                                  │
+     │ Dans l'ordre de peinture d'un contexte d'empilement, le contenu │
+     │ en flux non positionné passe AVANT les éléments positionnés de  │
+     │ z-index 0. Un titre ordinaire se retrouve donc peint SOUS les   │
+     │ rayons — présent dans le DOM, mesurable, cliquable, et          │
+     │ totalement invisible.                                           │
+     │                                                                  │
+     │ Les cartes existantes y échappent sans le savoir : `.card` est  │
+     │ positionnée, et `.page-title` porte un `transform` qui crée à   │
+     │ lui seul un contexte d'empilement. Ici, rien de tel — d'où      │
+     │ cette ligne, qui fait remonter TOUT le sous-arbre du hub.       │
+     └──────────────────────────────────────────────────────────────────┘ */
+  position: relative;
+
+  /* Le hub reprend toute la hauteur laissée par la barre du haut :
+     un tableau d'étoiles qui s'arrête à mi-écran n'est plus un ciel. */
+  min-height: calc(100dvh - var(--topbar-h, 64px) - 40px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 28px;
+}
+
+.hub-head { text-align: center; }
+
+.hub-title {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(30px, 7vw, 56px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  font-stretch: condensed;
+  color: var(--text-primary);
+  /* Le décrochage rouge de la DA, en ombre portée dure — jamais floue. */
+  text-shadow: 3px 3px 0 var(--brand);
+}
+
+.hub-sub {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.hub-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* ── Une constellation ─────────────────────────────────────────── */
+
+.constellation {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 18px 14px 16px;
+  gap: 12px;
+  min-height: 236px;
+  border: 1px solid var(--border);
+  background: linear-gradient(170deg, var(--surface-1), var(--plane));
+  /* Coins coupés : la coupe franche de la direction artistique. */
+  clip-path: polygon(0 14px, 14px 0, 100% 0, 100% calc(100% - 14px),
+                     calc(100% - 14px) 100%, 0 100%);
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  transition: transform var(--dur-base) var(--ease-out),
+              border-color var(--dur-base) var(--ease-soft);
+}
+
+
+/* ── Allumée : un module l'habite ──────────────────────────────── */
+
+.constellation-allumee { cursor: pointer; }
+
+.constellation-allumee .frame-star {
+  fill: #fff;
+  /* Le scintillement est décalé étoile par étoile (`animation-delay`
+     posé en ligne) : allumées ensemble, elles clignoteraient comme un
+     voyant de panne au lieu de respirer. */
+  animation: star-breathe 3.4s var(--ease-soft) infinite;
+}
+
+.constellation-allumee:hover,
+.constellation-allumee:focus-visible {
+  transform: translateY(-3px);
+  border-color: var(--brand);
+  outline: none;
+}
+
+
+/* ── Éteinte : le domaine existe, rien ne l'occupe ─────────────── */
+
+/* ┌─ L'EXTINCTION EST UNE AFFAIRE DE COULEUR, PAS DE VOILE ─────────┐
+   │ Ces tuiles étaient posées à `opacity: 0.44`. C'est commode et    │
+   │ c'est faux : l'opacité compose le texte AVEC son fond, et le     │
+   │ contraste de la description tombait de 4,59 à 1,89 — largement   │
+   │ sous le seuil de 4,5. Un domaine à venir devenait illisible.     │
+   │                                                                   │
+   │ Ce qui dit « éteint » se voit déjà sans voile : le cadre est     │
+   │ gris au lieu du laiton, et personne n'habite le tableau. Les     │
+   │ textes, eux, restent à pleine opacité.                           │
+   └───────────────────────────────────────────────────────────────────┘ */
+.constellation-eteinte {
+  /* Pas de `pointer-events: none` : le texte doit rester sélectionnable
+     et lisible par un lecteur d'écran. C'est l'absence de `onClick` qui
+     la rend inerte, pas un masquage. */
+  cursor: default;
+  background: linear-gradient(170deg, var(--surface-1), var(--plane));
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.constellation-eteinte .constellation-name { color: var(--text-secondary); }
+
+.constellation-eteinte .constellation-state {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Textes ────────────────────────────────────────────────────── */
+
+.constellation-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.constellation-name {
+  font-size: 19px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-stretch: condensed;
+}
+
+.constellation-tagline {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  max-width: 22ch;
+}
+
+.constellation-state {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+
+/* ── LE PLONGEON ───────────────────────────────────────────────────
+   Celle qu'on choisit avance vers l'œil et se dissout ; les trois
+   autres reculent. C'est ce qui fait qu'on ENTRE dans un domaine au
+   lieu de changer d'écran.
+   ─────────────────────────────────────────────────────────────────── */
+
+.constellation-plonge {
+  animation: dive-in 620ms var(--ease-out) forwards;
+  /* Au-dessus des voisines pendant la traversée, sinon la grille les
+     empilerait par ordre du DOM et le tracé passerait dessous. */
+  z-index: 2;
+}
+
+.constellation-recule {
+  animation: dive-away 620ms var(--ease-soft) forwards;
+  pointer-events: none;
+}
+
+.hub-diving .hub-head { animation: dive-away 620ms var(--ease-soft) forwards; }
+
+@keyframes star-breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+@keyframes dive-in {
+  0%   { transform: scale(1);   opacity: 1; }
+  55%  { transform: scale(1.6); opacity: 1; }
+  100% { transform: scale(7);   opacity: 0; }
+}
+
+@keyframes dive-away {
+  0%   { transform: scale(1);    opacity: 1; }
+  100% { transform: scale(0.82); opacity: 0; }
+}
+
+/* ── Téléphone ─────────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+  .hub-board { grid-template-columns: 1fr; gap: 12px; }
+
+  /* En colonne unique, le tracé passe à gauche et le texte à droite :
+     empilé, chaque constellation prendrait un écran entier et il
+     faudrait faire défiler pour découvrir qu'il y en a quatre. */
+  .constellation {
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    min-height: 104px;
+    padding: 12px 14px;
+    text-align: left;
+  }
+
+  .frame { width: 76px; height: 95px; flex: 0 0 76px; padding: 5px; }
+  .frame-sky { inset: 5px; width: calc(100% - 10px); height: calc(100% - 10px); }
+
+  .constellation-name  { font-size: 17px; }
+  .constellation-tagline { max-width: none; }
+
+  .constellation-text { flex: 1; align-items: flex-start; }
+}
+
+/* La marque devient un bouton de retour : elle doit rester une marque,
+   pas ressembler à un bouton. */
+.brand-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.brand-link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+
+/* ── LE RETOUR, ENFIN ──────────────────────────────────────────────
+   Le téléphone entrait en glissant depuis la droite et disparaissait
+   d'un coup : `open &&` le retirait du DOM avant qu'une animation
+   puisse jouer. Il repart désormais par où il est venu, un peu plus
+   vite qu'il n'est arrivé — un départ traîne toujours plus qu'une
+   arrivée s'il dure autant.
+   ─────────────────────────────────────────────────────────────────── */
+
+@keyframes ff-phone-out {
+  from { opacity: 1; transform: rotate(-2.5deg); }
+  to   { opacity: 0; transform: translateX(70px) rotate(10deg) scale(0.9); }
+}
+
+@keyframes ff-scrim-out { from { opacity: 1; } to { opacity: 0; } }
+
+.phone-layer-closing .phone {
+  animation: ff-phone-out 260ms var(--ease-soft) forwards;
+}
+
+.phone-layer-closing .phone-scrim {
+  animation: ff-scrim-out 260ms linear forwards;
+}
+
+/* Pendant la sortie, plus rien ne se clique : un appui sur un panneau
+   qui s'efface déclencherait une action qu'on ne voit plus venir. */
+.phone-layer-closing { pointer-events: none; }
+
+/* ── SUR TÉLÉPHONE, LE TÉLÉPHONE PREND TOUT L'ÉCRAN ────────────────
+   Un combiné de 360 px posé en biais au milieu d'un écran de 390 px
+   n'est pas un objet : c'est une fenêtre qui rate son plein écran de
+   30 pixels. Il occupe donc toute la surface, se redresse, et perd
+   ses coins — on est DEDANS, plus devant.
+   ─────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+  .phone-layer { padding: 0; align-items: stretch; justify-content: stretch; }
+
+  .phone {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    height: 100dvh;
+    border-radius: 0;
+    border-width: 0;
+    transform: none;
+    box-shadow: none;
+    padding: calc(14px + env(safe-area-inset-top, 0px)) 14px
+             calc(18px + env(safe-area-inset-bottom, 0px));
+    animation: ff-phone-up 280ms var(--ease-out);
+  }
+
+  /* Il monte depuis le bas, d'où vient le doigt qui l'a ouvert — la
+     barre basse est juste en dessous. Arriver par la droite, comme sur
+     grand écran, contredirait le geste. */
+  @keyframes ff-phone-up {
+    from { opacity: 0; transform: translateY(26px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  @keyframes ff-phone-down {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 0; transform: translateY(26px); }
+  }
+
+  .phone-layer-closing .phone {
+    animation: ff-phone-down 240ms var(--ease-soft) forwards;
+  }
+
+  /* Plein écran, le voile n'est plus visible : il ne reste donc aucun
+     « à côté » où appuyer pour fermer. D'où le bouton ci-dessous, qui
+     n'existe QUE dans ce cas. */
+  .phone-close {
+    position: absolute;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    right: 12px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border: 2px solid var(--ink);
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .phone-close:active { background: var(--brand); }
+
+  /* L'encoche imitait un vrai combiné ; en plein écran elle n'imite
+     plus rien et ne fait qu'occuper la place du bouton de fermeture. */
+  .phone-notch { display: none; }
+
+  /* La rangée d'onglets s'arrête AVANT le bouton de fermeture : posé
+     par-dessus, il recouvrait la moitié de l'onglet « Carte ». */
+  .phone-tabs { padding-right: 52px; }
+}
+
+/* Hors téléphone, le voile suffit et le bouton serait redondant. */
+@media (min-width: 701px) { .phone-close { display: none; } }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   ATLAS — la direction artistique de la COQUILLE
+
+   ForgeFit est écarlate, anguleux, criard : c'est sa personnalité, et
+   elle doit rester chez lui. Le hub n'est au-dessus d'aucun domaine en
+   particulier — il ne peut donc pas porter les couleurs de l'un des
+   quatre. D'où cette nuit sourde et ce laiton, qui n'appartiennent à
+   aucun module et les accueillent tous.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root[data-module='hub'] {
+  --plane:        #0a0e1f;
+  --surface-1:    #111731;
+  --surface-2:    #171e3c;
+  --surface-3:    #1f2749;
+
+  --text-primary:   #f3f1e9;
+  --text-secondary: #b9bdd2;
+  --text-muted:     #7b819c;
+
+  --grid:   #1f2749;
+  --axis:   #2c3560;
+  --border: rgba(201, 162, 39, 0.22);
+
+  /* Le laiton remplace l'écarlate PARTOUT : une seule variable à
+     reprendre, parce que la coquille ne code aucune couleur en dur. */
+  --brand:      #c9a227;
+  --brand-deep: #8a6d13;
+  --ink:        #f3f1e9;
+}
+
+/* ── Le ciel ───────────────────────────────────────────────────────
+   Les rayons, les bandes et la déchirure sont l'affiche de ForgeFit.
+   Ici, elles n'ont rien à dire : on les éteint et on ne garde qu'un
+   ciel, avec de vraies étoiles.
+   ─────────────────────────────────────────────────────────────────── */
+
+:root[data-module='hub'] .rays,
+:root[data-module='hub'] .bands,
+:root[data-module='hub'] .tear,
+:root[data-module='hub'] .depth,
+:root[data-module='hub'] .weather-layer {
+  display: none;
+}
+
+:root[data-module='hub'] .sky {
+  background:
+    /* Trois champs d'étoiles de tailles différentes, à des positions
+       FIXES. Un semis aléatoire redessiné à chaque visite empêcherait
+       de reconnaître son propre ciel. */
+    radial-gradient(1.6px 1.6px at 12% 18%, #fff 50%, transparent 51%),
+    radial-gradient(1.4px 1.4px at 78% 9%,  #fff 50%, transparent 51%),
+    radial-gradient(1.8px 1.8px at 34% 64%, #fff 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 91% 44%, #dfe4ff 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 57% 31%, #fff 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 23% 88%, #dfe4ff 50%, transparent 51%),
+    radial-gradient(1.7px 1.7px at 66% 77%, #fff 50%, transparent 51%),
+    radial-gradient(1.3px 1.3px at 45% 5%,  #fff 50%, transparent 51%),
+    radial-gradient(1.1px 1.1px at 6% 52%,  #c9a227 50%, transparent 51%),
+    radial-gradient(1.4px 1.4px at 85% 68%, #c9a227 50%, transparent 51%),
+    /* Deux nébuleuses très sourdes, pour que le noir ne soit pas plat. */
+    radial-gradient(60vw 44vh at 74% 12%, rgba(90, 76, 160, 0.20), transparent 70%),
+    radial-gradient(50vw 40vh at 16% 82%, rgba(38, 74, 140, 0.20), transparent 70%),
+    linear-gradient(180deg, #0a0e1f, #05070f);
+  opacity: 1;
+}
+
+:root[data-module='hub'] .motes { opacity: 0.35; }
+
+/* ── L'en-tête ─────────────────────────────────────────────────────
+   Le bandeau écarlate en biseau est la signature de ForgeFit. Atlas
+   se présente autrement : lettrage espacé, filet de laiton, rien qui
+   crie.
+   ─────────────────────────────────────────────────────────────────── */
+
+:root[data-module='hub'] .topbar {
+  background: rgba(10, 14, 31, 0.86);
+  border-bottom: 1px solid rgba(201, 162, 39, 0.28);
+  clip-path: none;
+}
+
+/* L'aplat en biseau derrière la marque est la signature de ForgeFit :
+   une affiche qui entre dans le cadre par la gauche. Atlas ne crie
+   pas — il pose son nom sur la nuit, sans support. */
+:root[data-module='hub'] .topbar::after { display: none; }
+
+:root[data-module='hub'] .brand {
+  background: none;
+  clip-path: none;
+  padding: 0;
+  transform: none;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+}
+
+:root[data-module='hub'] .brand span { color: inherit; }
+
+/* ── Le titre ──────────────────────────────────────────────────────
+   Le décrochage rouge dur ne convient plus : le laiton se pose en
+   filet fin sous le mot, comme la tranche d'un livre.
+   ─────────────────────────────────────────────────────────────────── */
+
+.hub-title {
+  text-shadow: none;
+  letter-spacing: 0.16em;
+  font-weight: 600;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--brand);
+  display: inline-block;
+}
+
+/* ── Le tableau ────────────────────────────────────────────────────
+   Un cadre de laiton, une toile de nuit, un personnage dessus. Le
+   liseré intérieur clair est ce qui fait lire « cadre » plutôt que
+   « bordure » : un vrai cadre a une gorge.
+   ─────────────────────────────────────────────────────────────────── */
+
+.frame {
+  position: relative;
+  display: block;
+
+  /* ┌─ HAUTEUR EXPLICITE, ET NON `aspect-ratio` ────────────────────┐
+     │ Avec `box-sizing: border-box` et une marge intérieure de 7 px, │
+     │ `aspect-ratio: 4/5` donne 132 × 165 dans Blink et Gecko — le   │
+     │ rapport s'applique à la boîte de bordure, comme attendu. WebKit│
+     │ en déduit la hauteur du CONTENU et rajoute la marge : 179 px,  │
+     │ soit un cadre 14 px plus haut sur iPhone, et quatre tableaux   │
+     │ désalignés.                                                     │
+     │                                                                 │
+     │ Une hauteur posée en clair ne se prête à aucune interprétation.│
+     └─────────────────────────────────────────────────────────────────┘ */
+  width: 132px;
+  height: 165px;
+  padding: 7px;
+  background: linear-gradient(150deg, #e6cc6a, #8a6d13 58%, #c9a227);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.55);
+}
+
+.frame::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  pointer-events: none;
+}
+
+.frame-sky {
+  position: absolute;
+  inset: 7px;
+  width: calc(100% - 14px);
+  height: calc(100% - 14px);
+  background: linear-gradient(170deg, #141b38, #070a18);
+}
+
+.frame-edge { stroke: rgba(201, 162, 39, 0.30); stroke-width: 0.5; }
+.frame-star { fill: rgba(255, 255, 255, 0.55); }
+
+.portrait {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.portrait-silhouette { fill: #05070f; }
+.portrait-accent     { fill: var(--brand); }
+
+/* Les ondes du visage de profil sont des TRAITS, pas des aplats : un
+   rayonnement rempli deviendrait une tache. */
+.portrait-accent-trait {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+}
+
+/* ── États ─────────────────────────────────────────────────────── */
+
+.constellation-allumee .portrait-silhouette { fill: #05070f; }
+
+.constellation-allumee:hover .frame,
+.constellation-allumee:focus-visible .frame {
+  box-shadow: 0 0 0 2px var(--brand), 0 14px 28px rgba(0, 0, 0, 0.6);
+}
+
+/* Éteinte : la toile est là, le cadre aussi, mais personne n'est
+   encore entré dans le tableau. */
+.constellation-eteinte .frame {
+  background: linear-gradient(150deg, #4a4a52, #2a2a30);
+}
+
+.constellation-eteinte .portrait { display: none; }
+.constellation-eteinte .frame-star { fill: rgba(255, 255, 255, 0.22); }
+.constellation-eteinte .frame-edge { stroke: rgba(255, 255, 255, 0.10); }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LE PORTAIL — connexion et création de compte
+   ═══════════════════════════════════════════════════════════════════ */
+
+.auth-screen {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: linear-gradient(180deg, #0a0e1f, #05070f);
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  padding: 28px 24px 24px;
+  /* Valeurs en clair : le portail s'affiche AVANT que l'application ne
+     monte, et les jetons d'un module ne sont pas encore posés. */
+  background: #111731;
+  border: 1px solid rgba(201, 162, 39, 0.28);
+  clip-path: polygon(0 16px, 16px 0, 100% 0, 100% calc(100% - 16px),
+                     calc(100% - 16px) 100%, 0 100%);
+}
+
+.auth-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #f3f1e9;
+}
+
+.auth-sub { margin: 8px 0 20px; font-size: 13px; color: #b9bdd2; }
+
+.auth-label {
+  margin-top: 14px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b9bdd2;
+}
+
+.auth-card input {
+  /* 46 px au moins : c'est un formulaire qu'on remplit au doigt sur un
+     téléphone, et deux champs ratés de suite découragent. */
+  min-height: 46px;
+  background: #171e3c;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f3f1e9;
+}
+
+.auth-hint { margin: 8px 0 0; font-size: 12px; color: #7b819c; }
+
+.auth-errors {
+  margin: 0 0 4px;
+  padding: 10px 12px 10px 28px;
+  list-style: disc;
+  background: rgba(208, 59, 59, 0.14);
+  border-left: 3px solid #d03b3b;
+  font-size: 13px;
+  color: #f3f1e9;
+}
+
+.auth-errors li + li { margin-top: 4px; }
+
+.auth-actions { display: flex; gap: 10px; margin-top: 22px; }
+
+/* ── Le bandeau d'une instance non protégée ────────────────────── */
+
+.auth-banner {
+  position: relative;
+  /* Au-dessus de la barre haute collante, qui monte à 20 : le bandeau
+     annonce l'état de TOUTE l'instance, il ne passe sous rien. */
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: #3a2c08;
+  border-bottom: 2px solid #c9a227;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #f3f1e9;
+}
+
+/* Le texte prend la place restante. Sans base explicite, un élément
+   flex se réduit à sa largeur minimale : le bandeau montait à 133 px
+   de haut sur un écran de 1280. */
+.auth-banner > span:first-child { flex: 1 1 420px; }
+
+.auth-banner strong { color: #f0c94a; }
+
+/* Les boutons de la barre d'action principale font 54 px de haut : ici,
+   ils dictaient à eux seuls la hauteur du bandeau. Un avertissement se
+   lit, il ne se proclame pas. */
+.auth-banner .btn-primary,
+.auth-banner .btn-ghost {
+  min-height: 36px;
+  height: 36px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+.auth-banner-actions { display: flex; gap: 8px; margin-left: auto; }
+
+@media (max-width: 700px) {
+  .auth-banner { font-size: 12px; padding: 10px 12px; gap: 10px; }
+  .auth-banner > span:first-child { flex: 1 1 100%; }
+  .auth-banner-actions { margin-left: 0; width: 100%; }
+  .auth-banner-actions button { flex: 1; min-height: 38px; padding: 0 12px; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   LE COACH — la consigne, et ce qui l'a produite
+   ═══════════════════════════════════════════════════════════════════ */
+
+.coach-card { border-left: 3px solid var(--brand); }
+
+/* Une consigne qui passe avant le plan se signale : c'est la seule
+   qui contredit ce que la personne avait prévu de faire. */
+.coach-prioritaire { border-left-color: var(--warning); }
+
+.coach-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.coach-duree {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand);
+}
+
+.coach-duree span { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+
+.coach-alerte {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  border-left: 3px solid var(--warning);
+  font-size: 13px;
+}
+
+.coach-raisons {
+  margin: 14px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* La source se lit comme une note de bas de page : présente, discrète,
+   et son texte complet arrive au survol. */
+.coach-source {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.coach-blocs { display: grid; gap: 10px; margin-top: 18px; }
+
+.coach-bloc {
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--axis);
+}
+
+.coach-bloc-tete {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.coach-bloc-tete span { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.coach-bloc-detail { margin: 5px 0 0; font-size: 13px; color: var(--text-secondary); }
+.coach-bloc-note { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+.coach-cles {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.coach-avertissement {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--grid);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── L'état qui a décidé ──────────────────────────────────────── */
+
+.coach-etat { margin: 14px 0 0; display: grid; gap: 8px; }
+
+.coach-etat > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 13px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.coach-etat dt { color: var(--text-muted); }
+.coach-etat dd { margin: 0; text-align: right; color: var(--text-primary); }
+
+.coach-semaine { display: grid; gap: 10px; }
+
+.coach-part-tete {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+
+.coach-part-tete span { text-transform: capitalize; color: var(--text-secondary); }
+.coach-part-tete strong { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 700px) {
+  .coach-duree { font-size: 28px; }
+  .coach-etat > div { flex-direction: column; gap: 2px; }
+  .coach-etat dd { text-align: left; }
+}
+
+
+/* Charge hebdomadaire d'une discipline — douze barres, rien de plus.
+   Une courbe demanderait une bibliothèque pour douze valeurs. */
+.disc-barres {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 78px;
+  padding: 0 2px;
+}
+
+.disc-barre {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  background: var(--surface-2);
+}
+
+.disc-barre-fill { width: 100%; background: var(--brand); }
+
+
+/* ═══ LE MANUEL D'UNE DISCIPLINE ══════════════════════════════════ */
+
+.manuel-chapeau {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* Une discipline sans doctrine écrite se signale : l'absence est une
+   information, pas un blanc. */
+.manuel-sans-doctrine {
+  padding-left: 12px;
+  border-left: 2px solid var(--axis);
+  font-style: italic;
+}
+
+.manuel-forces { display: grid; gap: 10px; margin-top: 16px; }
+
+.manuel-force {
+  padding: 11px 13px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--brand);
+}
+
+.manuel-force strong { font-size: 13.5px; }
+.manuel-force p { margin: 3px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+.manuel-famille { margin-top: 16px; }
+
+.manuel-techniques { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+
+.manuel-techniques > li {
+  padding: 9px 12px;
+  background: var(--surface-2);
+  font-size: 13.5px;
+}
+
+.manuel-gloss { margin-left: 8px; font-size: 12.5px; color: var(--text-muted); }
+
+.manuel-cles {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.manuel-methodes { display: grid; gap: 10px; margin-top: 12px; }
+
+.manuel-methode { padding: 11px 13px; background: var(--surface-2); border-left: 2px solid var(--axis); }
+.manuel-methode-tete { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.manuel-methode-tete span { font-size: 12.5px; color: var(--text-muted); }
+.manuel-methode p { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+.manuel-principes { display: grid; gap: 10px; margin-top: 14px; }
+
+.manuel-principe { padding: 11px 13px; background: var(--surface-2); border-left: 2px solid var(--brand); }
+.manuel-principe strong { font-size: 13.5px; }
+.manuel-principe p { margin: 3px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+.manuel-lecons, .manuel-liste {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+
+/* ═══ LE DÉTAIL D'UNE DISCIPLINE ══════════════════════════════════ */
+
+.detail-faits { margin: 12px 0 0; display: grid; gap: 9px; }
+
+.detail-faits > div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--grid);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.detail-faits dt { color: var(--text-muted); }
+.detail-faits dd { margin: 0; color: var(--text-secondary); }
+
+.detail-seance, .detail-paliers, .detail-erreurs { display: grid; gap: 10px; margin-top: 12px; }
+
+.detail-phase, .detail-palier {
+  padding: 11px 13px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--axis);
+}
+
+.detail-phase-tete {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.detail-phase-tete span {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.detail-phase p { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+.detail-erreur {
+  padding: 11px 13px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--warning);
+}
+
+.detail-erreur strong { font-size: 13.5px; }
+.detail-pourquoi { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+/* La correction se distingue de la faute : c'est ce qu'on retient. */
+.detail-correction {
+  margin: 6px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--good);
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.detail-securite { border-left: 3px solid var(--serious); }
+
+@media (max-width: 700px) {
+  .detail-faits > div { grid-template-columns: 1fr; gap: 2px; }
+}
+
+
+/* ═══ ILLUSTRATIONS DE TECHNIQUE ══════════════════════════════════ */
+
+.manuel-techniques > li.avec-image {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.technique-texte { flex: 1; min-width: 0; }
+
+.technique-figure { margin: 0; flex: 0 0 132px; width: 132px; }
+
+.technique-figure img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: var(--plane);
+  border: 1px solid var(--border);
+}
+
+/* L'attribution est petite mais JAMAIS masquée : c'est la contrepartie
+   de la licence, pas une mention légale qu'on planque. */
+.technique-figure figcaption {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  display: grid;
+  gap: 1px;
+}
+
+.technique-figure figcaption a { color: var(--text-muted); text-decoration: underline; }
+.technique-figure figcaption a:hover { color: var(--brand); }
+
+/* Le lien vidéo : discret mais présent sous chaque technique. Il mène
+   à une RECHERCHE, jamais à une vidéo précise — voir combat-video.js. */
+.technique-video {
+  /* En bloc : sans repères d'exécution au-dessus, un `inline-block` se
+     collait à la traduction et les deux se lisaient comme une phrase. */
+  display: block;
+  width: fit-content;
+  margin-top: 7px;
+  font-size: 11.5px;
+  color: var(--brand);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.technique-video:hover { text-decoration: underline; }
+
+@media (max-width: 560px) {
+  .manuel-techniques > li.avec-image { flex-direction: column; }
+  .technique-figure { flex: none; width: 100%; max-width: 240px; }
+}
+
+
+/* Supprimer une série : discret au repos, franc au survol. Le geste est
+   irréversible et le bouton est à côté d'une valeur qu'on vient de lire,
+   d'où la confirmation côté composant. */
+.log-supprimer {
+  margin-left: 10px;
+  padding: 4px 6px;
+  min-width: 30px;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity var(--dur-fast) var(--ease-soft),
+              color var(--dur-fast) var(--ease-soft);
+}
+
+.log-line:hover .log-supprimer { opacity: 1; }
+.log-supprimer:hover { color: var(--critical); border-color: var(--critical); }
+.log-supprimer:focus-visible { opacity: 1; outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* Au doigt, il n'y a pas de survol : la cible reste toujours atteignable. */
+@media (pointer: coarse) {
+  .log-supprimer { opacity: 0.8; min-width: 40px; min-height: 40px; }
+}
+
+
+/* ═══ RECETTES ════════════════════════════════════════════════════ */
+
+.recette { text-align: left; display: flex; flex-direction: column; gap: 10px; }
+
+.recette-tete {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.recette-temps {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.recette-macros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.recette-macros strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+.recette-bas {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--grid);
+}
+
+.recette-prix { color: var(--brand); font-weight: 700; white-space: nowrap; }
+.recette-tags { text-align: right; }
+
+.recette-ingredients { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+
+.recette-ingredients > li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--grid);
+}
+
+.recette-qte { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.recette-etapes {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 7px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.recette-note {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--grid);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+
+/* ═══ SYLLABUS ════════════════════════════════════════════════════ */
+
+.syllabus-liste { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+
+.syllabus-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-left: 2px solid var(--axis);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-soft);
+}
+
+.syllabus-item:hover { border-left-color: var(--brand); }
+.syllabus-item:disabled { opacity: 0.6; cursor: wait; }
+
+/* Tenu : le liseré passe au vert et le texte s'apaise. On ne barre pas —
+   ce qui est acquis reste au programme, il cesse seulement d'être à
+   travailler en priorité. */
+.syllabus-tenu { border-left-color: var(--good); }
+.syllabus-tenu .syllabus-texte strong { color: var(--text-secondary); }
+
+.syllabus-coche {
+  flex: 0 0 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--axis);
+  color: var(--good);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.syllabus-tenu .syllabus-coche { border-color: var(--good); }
+
+.syllabus-texte { display: grid; gap: 2px; min-width: 0; }
+.syllabus-texte strong { font-size: 13.5px; }
+.syllabus-gloss { font-size: 12px; color: var(--text-muted); }
+
+.syllabus-note {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--grid);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.syllabus-kumite { margin: 12px 0 0; display: grid; gap: 3px; font-size: 14px; }
+.syllabus-kumite span { font-size: 12.5px; color: var(--text-muted); }
+
+/* Au doigt, la cible fait toute la ligne : pas de cible de 22 px. */
+@media (pointer: coarse) { .syllabus-item { min-height: 52px; } }
+
+
+/* ═══ IMPORT SANTÉ ════════════════════════════════════════════════ */
+
+.import-etat {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--brand);
+  font-size: 13px;
+}
+
+.import-etapes {
+  margin: 14px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 7px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.import-note {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.import-resultat {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--grid);
+}
+
+.import-journal {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* ═══ LE CIEL ÉTOILÉ ══════════════════════════════════════════════════
+   Le fond était un aplat sombre sous les rayons. On y sème de GRANDES
+   étoiles à quatre branches — la forme des fonds Atlus, aux côtés
+   concaves : une étoile à côtés droits ferait sapin de Noël, c'est la
+   concavité qui donne l'éclat.
+
+   Trois calques à trois échelles et trois vitesses : la parallaxe
+   donne la profondeur que le noir plat n'avait pas. Les positions sont
+   FIGÉES — un ciel retiré au sort à chaque visite n'est plus un ciel.
+
+   ┌─ LE PIÈGE DE L'URI DE DONNÉES ──────────────────────────────────┐
+   │ Le « # » d'une couleur coupe l'URI et doit être encodé en %23.  │
+   │ Le passer DÉJÀ encodé à l'encodeur donne %2523 : une couleur    │
+   │ invalide, et des étoiles parfaitement transparentes. Le dièse   │
+   │ est donc écrit tel quel et encodé une seule fois.               │
+   └──────────────────────────────────────────────────────────────────┘
+   ═══════════════════════════════════════════════════════════════════ */
+
+.stars {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Deux hauteurs d'écran : la translation peut parcourir une période
+     entière sans jamais découvrir le bord. */
+  height: 220vh;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22880%22 height=%22880%22 viewBox=%220 0 880 880%22><g transform=%22translate%2890%2C110%29 scale%280.95%29 rotate%2812 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffffff%22 fill-opacity=%220.20%22/></g><g transform=%22translate%28560%2C250%29 scale%281.15%29 rotate%28-8 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffffff%22 fill-opacity=%220.20%22/></g><g transform=%22translate%28250%2C600%29 scale%280.8%29 rotate%2822 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffffff%22 fill-opacity=%220.20%22/></g><g transform=%22translate%28680%2C720%29 scale%280.6%29 rotate%285 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffffff%22 fill-opacity=%220.20%22/></g></svg>"), url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22620%22 height=%22620%22 viewBox=%220 0 620 620%22><g transform=%22translate%2860%2C360%29 scale%280.6%29 rotate%2818 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffd84a%22 fill-opacity=%220.26%22/></g><g transform=%22translate%28420%2C90%29 scale%280.5%29 rotate%28-14 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffd84a%22 fill-opacity=%220.26%22/></g><g transform=%22translate%28280%2C470%29 scale%280.45%29 rotate%2830 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffd84a%22 fill-opacity=%220.26%22/></g></svg>"), url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22420%22 height=%22420%22 viewBox=%220 0 420 420%22><g transform=%22translate%2845%2C60%29 scale%280.34%29 rotate%280 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ff8a9e%22 fill-opacity=%220.24%22/></g><g transform=%22translate%28270%2C210%29 scale%280.3%29 rotate%2825 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ff8a9e%22 fill-opacity=%220.24%22/></g><g transform=%22translate%28150%2C330%29 scale%280.26%29 rotate%28-12 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ff8a9e%22 fill-opacity=%220.24%22/></g></svg>");
+  background-size: 880px 880px, 620px 620px, 420px 420px;
+  background-position: 0 0, 160px 90px, 80px 260px;
+  will-change: transform;
+  animation: ff-stars 120s linear infinite;
+}
+
+@keyframes ff-stars {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, -880px, 0); }
+}
+
+/* Un second calque, plus grand et plus lent : c'est lui qui crée la
+   sensation de distance. */
+.stars-loin {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 220vh;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22880%22 height=%22880%22 viewBox=%220 0 880 880%22><g transform=%22translate%2890%2C110%29 scale%280.95%29 rotate%2812 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffffff%22 fill-opacity=%220.20%22/></g><g transform=%22translate%28560%2C250%29 scale%281.15%29 rotate%28-8 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffffff%22 fill-opacity=%220.20%22/></g><g transform=%22translate%28250%2C600%29 scale%280.8%29 rotate%2822 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffffff%22 fill-opacity=%220.20%22/></g><g transform=%22translate%28680%2C720%29 scale%280.6%29 rotate%285 50 50%29%22><path d=%22M50 2 C54 34 66 46 98 50 C66 54 54 66 50 98 C46 66 34 54 2 50 C34 46 46 34 50 2 Z%22 fill=%22%23ffffff%22 fill-opacity=%220.20%22/></g></svg>");
+  background-size: 1400px 1400px;
+  background-position: 320px 0;
+  opacity: 0.4;
+  will-change: transform;
+  animation: ff-stars-loin 260s linear infinite;
+}
+
+@keyframes ff-stars-loin {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, -1400px, 0); }
+}
+
+/* Sur le hub, le ciel d'Atlas a ses propres étoiles : on retire
+   celles-ci plutôt que de superposer deux firmaments. */
+:root[data-module='hub'] .stars,
+:root[data-module='hub'] .stars-loin { display: none; }
+
+/* Le Carnet est en papier, pas en nuit. */
+:root[data-module='carnet'] .stars,
+:root[data-module='carnet'] .stars-loin { display: none; }
+
+/* Le bloc de telechargement du raccourci : detache du reste de la
+   carte, parce que c'est le chemin recommande et que les deux autres
+   sont replies dessous. */
+.sync-telecharger {
+  border-left: 3px solid var(--brand);
+  padding-left: 14px;
+  /* Sans ceci, la boite se dimensionne sur son plus large enfant
+     insecable — une URL — et elargit la page. */
+  min-width: 0;
+}
+
+.sync-telecharger .btn-ghost { margin-top: 10px; }
+
+/* Le journal des receptions. Trois etats, trois couleurs — et le
+   « recu mais vide » n'est PAS un succes : c'est la panne la plus
+   trompeuse du lot, elle doit se voir comme un avertissement. */
+.sync-journal {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.sync-journal li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-left: 3px solid var(--text-muted);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.sync-journal li[data-etat='ok']   { border-left-color: var(--good); }
+.sync-journal li[data-etat='vide'] { border-left-color: var(--warning); }
+.sync-journal li[data-etat='rate'] { border-left-color: var(--critical); }
+
+.sync-journal-quand {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.sync-journal-dit { color: var(--text-secondary); overflow-wrap: anywhere; }
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
