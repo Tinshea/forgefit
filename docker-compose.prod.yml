@@ -50,11 +50,22 @@ services:
       # Sans secret, la signature des webhooks n'est PAS vérifiée :
       # n'importe qui peut injecter de fausses mesures.
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:?definir un secret}
+      # Jeton porteur : l'app Raccourcis d'iOS n'a aucune action de
+      # hachage HMAC et ne peut donc pas signer ses envois. Sans ce
+      # jeton, le raccourci de synchronisation Sante est refuse.
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN:-}
+      # Nom stable de l'hote sur le reseau local (« serveur.local ») :
+      # l'IP est distribuee par le routeur et change au redemarrage, ce
+      # qui perime l'adresse figee dans le raccourci.
+      MDNS_HOST: ${MDNS_HOST:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
       EXERCISES_DATASET_URL: ${EXERCISES_DATASET_URL:-https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main/data/exercises.json}
       EXERCISES_MEDIA_BASE: ${EXERCISES_MEDIA_BASE:-https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main}
     ports:
       - "${API_PORT:-3000}:3000"
+    labels:
+      # Watchtower ne touche QUE ce qui porte cette etiquette.
+      com.centurylinklabs.watchtower.enable: "true"
     networks:
       - forgefit-internal
       - forgefit-mesh
@@ -70,8 +81,44 @@ services:
       - api
     ports:
       - "${WEB_PORT:-8080}:80"
+    labels:
+      # Watchtower ne touche QUE ce qui porte cette etiquette.
+      com.centurylinklabs.watchtower.enable: "true"
     networks:
       - forgefit-internal
+
+  # ┌─ MISE A JOUR AUTOMATIQUE ────────────────────────────────────────┐
+  # │ Watchtower interroge GHCR et redemarre un conteneur des qu'une   │
+  # │ image plus recente y apparait. Le workflow publie a chaque push  │
+  # │ sur `main` : pousser suffit donc a deployer.                     │
+  # │                                                                   │
+  # │ POURQUOI TIRER PLUTOT QUE RECEVOIR : un webhook de GitHub vers   │
+  # │ la maison supposerait d'ouvrir un port depuis Internet jusqu'au  │
+  # │ home lab. Tirer ne demande rien : le serveur sort, personne      │
+  # │ n'entre.                                                         │
+  # │                                                                   │
+  # │ FACULTATIF, et c'est voulu : le service ne demarre qu'avec le    │
+  # │ profil `auto`. Une mise a jour qui se declenche seule est un     │
+  # │ choix, pas un defaut — elle peut tomber pendant une seance.      │
+  # │   docker compose -f docker-compose.prod.yml --profile auto up -d │
+  # │                                                                   │
+  # │ La BASE est volontairement exclue du perimetre : on ne remplace  │
+  # │ pas une base de donnees dans le dos de son proprietaire.         │
+  # └───────────────────────────────────────────────────────────────────┘
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: forgefit-watchtower
+    restart: unless-stopped
+    profiles: ["auto"]
+    command: --label-enable --cleanup --interval ${WATCHTOWER_INTERVAL:-300}
+    volumes:
+      # Lecture seule : Watchtower a besoin de parler au demon, pas de
+      # pouvoir tout y faire.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # Images privees sur GHCR : fournir un jeton en lecture de paquets.
+      REPO_USER: ${GHCR_USER:-}
+      REPO_PASS: ${GHCR_TOKEN:-}
 
 networks:
   forgefit-internal:

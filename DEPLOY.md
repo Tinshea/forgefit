@@ -12,6 +12,111 @@ fait en un clic.
 
 ---
 
+## Home lab — machine Linux avec Docker
+
+Le chemin le plus court : le serveur tire les images publiées, rien ne se
+construit chez lui, et une poussée sur `main` suffit à le mettre à jour.
+
+### 1. Poser les fichiers
+
+Sur le serveur, un seul fichier est nécessaire — le compose de production.
+Ni les sources, ni Git :
+
+```bash
+mkdir -p ~/atlas && cd ~/atlas
+curl -fsSLO https://raw.githubusercontent.com/<compte>/forgefit/main/docker-compose.prod.yml
+```
+
+### 2. Écrire le `.env`
+
+À côté du compose. **Il ne part jamais sur GitHub** — `.gitignore` l'exclut, et
+c'est le seul endroit où vivent les secrets.
+
+```bash
+cat > .env <<EOF
+GITHUB_OWNER=<ton-compte-en-minuscules>
+POSTGRES_PASSWORD=$(openssl rand -base64 24)
+WEBHOOK_SECRET=$(openssl rand -base64 24)
+WEBHOOK_TOKEN=$(openssl rand -base64 24)
+MDNS_HOST=$(hostname).local
+CORS_ORIGINS=http://$(hostname).local:8080
+EOF
+chmod 600 .env
+```
+
+`MDNS_HOST` mérite un mot : c'est ce qui donne au raccourci iOS une adresse
+**stable**. Une IP de réseau local est distribuée par le routeur et change au
+redémarrage — l'adresse figée dans le raccourci devient alors fausse, en
+silence. Le nom `.local` ne bouge pas, et l'iPhone le résout nativement.
+
+`WEBHOOK_TOKEN` est indispensable au raccourci : Raccourcis n'a aucune action
+de hachage HMAC et ne peut donc pas signer ses envois.
+
+### 3. Démarrer
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml logs -f api
+```
+
+L'API **refuse de démarrer** si un secret vaut encore la valeur d'exemple du
+dépôt, ou si ni `WEBHOOK_SECRET` ni `WEBHOOK_TOKEN` n'est défini. Ce dépôt étant
+public, `dev-secret-change-me` n'est un secret pour personne — et le webhook
+santé contourne la session, donc une instance mal configurée accepte les mesures
+de n'importe qui.
+
+Puis peupler la base : voir *Peupler la base*, plus bas.
+
+### 4. Mise à jour automatique à chaque poussée
+
+`.github/workflows/docker.yml` publie trois images sur GHCR à chaque push sur
+`main`. Reste à ce que le serveur les prenne.
+
+```bash
+docker compose -f docker-compose.prod.yml --profile auto up -d
+```
+
+Ce profil ajoute **Watchtower**, qui interroge GHCR toutes les cinq minutes et
+redémarre un conteneur dès qu'une image plus récente y apparaît. À partir de là,
+`git push` suffit : la construction part en CI, l'image est publiée, le serveur
+la tire.
+
+Trois décisions tenues dans ce réglage :
+
+- **Le serveur tire, GitHub ne pousse pas.** Un webhook de GitHub vers la maison
+  supposerait d'ouvrir un port depuis Internet jusqu'au home lab. Tirer ne
+  demande rien : le serveur sort, personne n'entre.
+- **La base est hors périmètre.** Seuls `api` et `web` portent l'étiquette que
+  Watchtower surveille. On ne remplace pas une base de données dans le dos de
+  son propriétaire.
+- **Le profil est facultatif.** Une mise à jour qui se déclenche seule est un
+  choix, pas un défaut — elle peut tomber au milieu d'une séance. Sans
+  `--profile auto`, rien ne bouge sans toi.
+
+Pour mettre à jour à la main, à l'inverse :
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+### 5. Dépôt privé sur GHCR
+
+Les images publiées par le workflow sont privées par défaut si le dépôt l'est.
+Il faut alors donner à Watchtower — et au serveur — un jeton GitHub avec la
+portée `read:packages` :
+
+```bash
+echo "GHCR_USER=<ton-compte>" >> .env
+echo "GHCR_TOKEN=<jeton read:packages>" >> .env
+docker login ghcr.io -u <ton-compte> --password-stdin <<< "<jeton>"
+```
+
+Le dépôt étant public, ce n'est probablement pas nécessaire — les paquets le
+sont aussi.
+
+---
+
 ## Portainer, à partir des images publiées
 
 ### 1. Publier les images
@@ -50,6 +155,8 @@ Portainer → *Stacks* → *Add stack* → **Web editor**, puis coller le conten
 | `GITHUB_OWNER` | ton compte GitHub, en minuscules | |
 | `POSTGRES_PASSWORD` | mot de passe fort | **obligatoire** |
 | `WEBHOOK_SECRET` | chaîne aléatoire | **obligatoire** |
+| `WEBHOOK_TOKEN` | chaîne aléatoire | sans lui, le raccourci iOS est refusé |
+| `MDNS_HOST` | `serveur.local` | adresse stable pour le raccourci |
 | `CORS_ORIGINS` | `http://<ip-hôte>:8080` | |
 | `WEB_PORT` / `API_PORT` | `8080` / `3000` | si ces ports sont libres |
 | `TAG` | `latest` | ou un hash de commit pour figer une version |
