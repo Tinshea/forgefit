@@ -100,11 +100,26 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-### 5. Dépôt privé sur GHCR
+### 5. Les images sont PRIVÉES par défaut, même si le dépôt est public
 
-Les images publiées par le workflow sont privées par défaut si le dépôt l'est.
-Il faut alors donner à Watchtower — et au serveur — un jeton GitHub avec la
-portée `read:packages` :
+C'est le piège, et il ne se devine pas : **un paquet GitHub n'hérite pas de la
+visibilité de son dépôt.** Un conteneur publié pour la première fois est privé,
+que le dépôt soit public ou non. Vérifié : un `docker pull` anonyme des trois
+images répond 403.
+
+Conséquence : sans rien faire, le serveur ne peut pas les tirer.
+
+**Option A — les rendre publiques** (recommandé si le dépôt l'est déjà). Le
+serveur tire sans compte, sans jeton, et rien à renouveler. Les images ne
+contiennent que ce que le dépôt contient déjà : le code, le schéma, le paquet
+construit. Aucun secret — ils viennent de l'environnement au démarrage.
+
+> GitHub → onglet **Packages** du profil → un paquet → *Package settings* →
+> *Danger Zone* → **Change visibility** → *Public*. À faire pour les trois :
+> `forgefit-api`, `forgefit-web`, `forgefit-db`.
+
+**Option B — les laisser privées.** Il faut alors un jeton avec la portée
+`read:packages`, sur le serveur et pour Watchtower :
 
 ```bash
 echo "GHCR_USER=<ton-compte>" >> .env
@@ -112,8 +127,8 @@ echo "GHCR_TOKEN=<jeton read:packages>" >> .env
 docker login ghcr.io -u <ton-compte> --password-stdin <<< "<jeton>"
 ```
 
-Le dépôt étant public, ce n'est probablement pas nécessaire — les paquets le
-sont aussi.
+Un jeton de plus à stocker, à renouveler quand il expire, et une panne de
+déploiement silencieuse le jour où il expire.
 
 ---
 
