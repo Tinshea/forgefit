@@ -4,7 +4,18 @@ WORKDIR /app
 
 # Couche de dépendances séparée: le cache survit aux changements de code.
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev && npm cache clean --force
+# ┌─ `npm ci` ET NON `npm install` ──────────────────────────────────┐
+# │ `npm install` peut RESOUDRE AUTREMENT que le fichier de           │
+# │ verrouillage, et le reecrire au passage. L'image ne contenait     │
+# │ donc pas forcement ce qui tournait sur le poste de travail —      │
+# │ exactement la promesse que Docker est cense tenir.                │
+# │                                                                     │
+# │ Cas reel : une montee de vite en 8 a fait echouer la construction │
+# │ de l'image alors que tout passait en local, ou un `node_modules`  │
+# │ plus ancien survivait. `npm ci` part d'une arborescence VIDE et   │
+# │ installe exactement le verrou : il echoue tot, et partout pareil. │
+# └───────────────────────────────────────────────────────────────────┘
+RUN npm ci --omit=dev && npm cache clean --force
 
 COPY src ./src
 
