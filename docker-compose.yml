@@ -1,9 +1,9 @@
-name: forgefit
+name: atlas
 
 services:
   db:
     image: postgres:16-alpine
-    container_name: forgefit-db
+    container_name: atlas-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-forgefit}
@@ -19,7 +19,7 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - forgefit-internal
+      - atlas-internal
     # No published port: the DB is only reachable from the internal network.
     # Uncomment for local psql access from the host.
     # ports: ["5432:5432"]
@@ -28,7 +28,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: forgefit-api
+    container_name: atlas-api
     restart: unless-stopped
     depends_on:
       db:
@@ -56,8 +56,8 @@ services:
     ports:
       - "${API_PORT:-3000}:3000"
     networks:
-      - forgefit-internal
-      - forgefit-mesh
+      - atlas-internal
+      - atlas-mesh
 
   web:
     build:
@@ -79,23 +79,23 @@ services:
         # À ne renseigner que si l'API est servie sur un domaine
         # RÉELLEMENT distinct du front.
         VITE_API_BASE: ${VITE_API_BASE:-}
-    container_name: forgefit-web
+    container_name: atlas-web
     restart: unless-stopped
     depends_on:
       - api
     ports:
       - "${WEB_PORT:-8080}:80"
     networks:
-      - forgefit-internal
+      - atlas-internal
 
 networks:
   # Pont privé : db <-> api <-> web. Injoignable par les stacks voisines.
-  forgefit-internal:
+  atlas-internal:
     driver: bridge
 
   # Maillage partagé : c'est par là que cette stack s'intègre à un
   # pipeline de données plus large. Les services voisins joignent l'API
-  # à http://forgefit-api:3000.
+  # à http://atlas-api:3000.
   #
   # Volontairement NON externe : un réseau `external: true` doit exister
   # avant le déploiement, sinon la stack échoue avec « network not
@@ -104,10 +104,10 @@ networks:
   #
   # `name:` fige le nom du réseau indépendamment du nom de la stack, donc
   # une autre stack peut s'y rattacher de façon prévisible :
-  #   networks: { forgefit-mesh: { external: true, name: forgefit-mesh } }
-  forgefit-mesh:
+  #   networks: { atlas-mesh: { external: true, name: atlas-mesh } }
+  atlas-mesh:
     driver: bridge
-    name: ${MESH_NETWORK:-forgefit-mesh}
+    name: ${MESH_NETWORK:-atlas-mesh}
 
 volumes:
   db_data:

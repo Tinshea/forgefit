@@ -6,19 +6,19 @@
 # depuis les sources et exige la méthode « Repository ».
 #
 # Mettre à jour l'application :
-#   Portainer → Stacks → forgefit → « Update the stack »
+#   Portainer → Stacks → atlas → « Update the stack »
 #   en cochant « Re-pull image ». Aucune reconstruction, quelques
 #   secondes d'indisponibilité.
 
-name: forgefit
+name: atlas
 
 services:
   db:
     # Image portant le schéma : aucun montage depuis le disque, donc
     # déployable depuis l'éditeur web de Portainer, où le serveur n'a
     # aucune copie des sources.
-    image: ghcr.io/${GITHUB_OWNER:-tinshea}/forgefit-db:${TAG:-latest}
-    container_name: forgefit-db
+    image: ghcr.io/${GITHUB_OWNER:-tinshea}/atlas-db:${TAG:-latest}
+    container_name: atlas-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-forgefit}
@@ -34,11 +34,11 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - forgefit-internal
+      - atlas-internal
 
   api:
-    image: ghcr.io/${GITHUB_OWNER:-tinshea}/forgefit-api:${TAG:-latest}
-    container_name: forgefit-api
+    image: ghcr.io/${GITHUB_OWNER:-tinshea}/atlas-api:${TAG:-latest}
+    container_name: atlas-api
     restart: unless-stopped
     depends_on:
       db:
@@ -67,15 +67,15 @@ services:
       # Watchtower ne touche QUE ce qui porte cette etiquette.
       com.centurylinklabs.watchtower.enable: "true"
     networks:
-      - forgefit-internal
-      - forgefit-mesh
+      - atlas-internal
+      - atlas-mesh
 
   web:
     # L'image est construite avec VITE_API_BASE vide : le front appelle
     # sa propre origine et nginx relaie vers l'api. Elle est donc
     # portable — aucune reconstruction par environnement.
-    image: ghcr.io/${GITHUB_OWNER:-tinshea}/forgefit-web:${TAG:-latest}
-    container_name: forgefit-web
+    image: ghcr.io/${GITHUB_OWNER:-tinshea}/atlas-web:${TAG:-latest}
+    container_name: atlas-web
     restart: unless-stopped
     depends_on:
       - api
@@ -85,7 +85,7 @@ services:
       # Watchtower ne touche QUE ce qui porte cette etiquette.
       com.centurylinklabs.watchtower.enable: "true"
     networks:
-      - forgefit-internal
+      - atlas-internal
 
   # ┌─ MISE A JOUR AUTOMATIQUE ────────────────────────────────────────┐
   # │ Watchtower interroge GHCR et redemarre un conteneur des qu'une   │
@@ -107,7 +107,7 @@ services:
   # └───────────────────────────────────────────────────────────────────┘
   watchtower:
     image: containrrr/watchtower:1.7.1
-    container_name: forgefit-watchtower
+    container_name: atlas-watchtower
     restart: unless-stopped
     profiles: ["auto"]
     command: --label-enable --cleanup --interval ${WATCHTOWER_INTERVAL:-300}
@@ -116,16 +116,20 @@ services:
       # pouvoir tout y faire.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
+      # Docker 29 refuse toute API client < 1.44, et Watchtower 1.7.1
+      # annonce 1.25 par defaut : sans ceci, il echoue au demarrage avec
+      # « client version 1.25 is too old ».
+      DOCKER_API_VERSION: ${WATCHTOWER_DOCKER_API:-1.44}
       # Images privees sur GHCR : fournir un jeton en lecture de paquets.
       REPO_USER: ${GHCR_USER:-}
       REPO_PASS: ${GHCR_TOKEN:-}
 
 networks:
-  forgefit-internal:
+  atlas-internal:
     driver: bridge
-  forgefit-mesh:
+  atlas-mesh:
     driver: bridge
-    name: ${MESH_NETWORK:-forgefit-mesh}
+    name: ${MESH_NETWORK:-atlas-mesh}
 
 volumes:
   db_data:

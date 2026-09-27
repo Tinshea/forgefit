@@ -10,7 +10,7 @@
 
 param(
   [Parameter(Mandatory = $true)][string]$Fichier,
-  [string]$Conteneur = 'forgefit-api',
+  [string]$Conteneur = 'atlas-api',
   [string]$Depuis,
   [switch]$Simulation
 )
@@ -31,7 +31,7 @@ $xml = $Fichier
 
 # L'iPhone produit un .zip contenant apple_health_export/export.xml.
 if ($Fichier -like '*.zip') {
-  $temp = Join-Path $env:TEMP "forgefit-health-$(Get-Random)"
+  $temp = Join-Path $env:TEMP "atlas-health-$(Get-Random)"
   Write-Host "Extraction de l'archive..." -ForegroundColor Cyan
   Expand-Archive -Path $Fichier -DestinationPath $temp -Force
 

@@ -38,7 +38,7 @@ Ni les sources, ni Git :
 
 ```bash
 mkdir -p ~/atlas && cd ~/atlas
-curl -fsSLO https://raw.githubusercontent.com/<compte>/forgefit/main/docker-compose.prod.yml
+curl -fsSLO https://raw.githubusercontent.com/<compte>/atlas/main/docker-compose.prod.yml
 ```
 
 ### 2. Écrire le `.env`
@@ -141,7 +141,7 @@ construit. Aucun secret — ils viennent de l'environnement au démarrage.
 
 > GitHub → onglet **Packages** du profil → un paquet → *Package settings* →
 > *Danger Zone* → **Change visibility** → *Public*. À faire pour les trois :
-> `forgefit-api`, `forgefit-web`, `forgefit-db`.
+> `atlas-api`, `atlas-web`, `atlas-db`.
 
 **Option B — les laisser privées.** Il faut alors un jeton avec la portée
 `read:packages`, sur le serveur et pour Watchtower :
@@ -165,9 +165,9 @@ déploiement silencieuse le jour où il expire.
 trois images sur GitHub Container Registry :
 
 ```
-ghcr.io/<compte>/forgefit-api:latest
-ghcr.io/<compte>/forgefit-web:latest
-ghcr.io/<compte>/forgefit-db:latest
+ghcr.io/<compte>/atlas-api:latest
+ghcr.io/<compte>/atlas-web:latest
+ghcr.io/<compte>/atlas-db:latest
 ```
 
 Étiquettes produites : `latest`, la version si le commit porte un tag `vX.Y.Z`,
@@ -208,7 +208,7 @@ passe par défaut ou sans vérification de signature.
 ### 4. Peupler la base
 
 Le schéma s'applique tout seul au premier démarrage — il est embarqué dans
-l'image `forgefit-db`. Restent les données, via *Containers → forgefit-api →
+l'image `atlas-db`. Restent les données, via *Containers → atlas-api →
 Console* :
 
 ```bash
@@ -220,7 +220,7 @@ npm run seed:foods   # catalogue d'aliments
 
 Après un push sur `main`, attendre la fin du workflow, puis :
 
-Portainer → *Stacks* → `forgefit` → **Update the stack** → cocher
+Portainer → *Stacks* → `atlas` → **Update the stack** → cocher
 **Re-pull image** → *Update*.
 
 Quelques secondes d'indisponibilité. Le volume `db_data` n'est pas touché : les
@@ -268,8 +268,8 @@ Portainer → *Stacks* → *Add stack* → **Repository**
 
 | Champ | Valeur |
 |---|---|
-| Name | `forgefit` |
-| Repository URL | `https://github.com/<compte>/forgefit` |
+| Name | `atlas` |
+| Repository URL | `https://github.com/<compte>/atlas` |
 | Reference | `refs/heads/main` |
 | Compose path | `docker-compose.yml` |
 | Authentication | activer si le dépôt est privé |
@@ -296,11 +296,11 @@ Le premier démarrage crée le schéma (les scripts de `db/init` s'exécutent su
 volume vide). Il reste à charger les données :
 
 ```bash
-docker exec forgefit-api npm run ingest      # 1324 exercices
-docker exec forgefit-api npm run seed:foods  # catalogue d'aliments
+docker exec atlas-api npm run ingest      # 1324 exercices
+docker exec atlas-api npm run seed:foods  # catalogue d'aliments
 ```
 
-Depuis Portainer sans shell : *Containers → forgefit-api → Console → Connect*.
+Depuis Portainer sans shell : *Containers → atlas-api → Console → Connect*.
 
 **5. Vérifier**
 
@@ -328,7 +328,7 @@ http://<ip-hôte>:8080              → l'application
 
 Autres points avant une exposition durable :
 
-- **Sauvegardes.** Le volume `db_data` contient tout. `docker exec forgefit-db
+- **Sauvegardes.** Le volume `db_data` contient tout. `docker exec atlas-db
   pg_dump -U forgefit forgefit > sauvegarde.sql`, planifié.
 - **HTTPS.** Un reverse proxy (Traefik, Caddy, Nginx Proxy Manager) devant le
   service `web`. Les webhooks transportant des données de santé, le clair n'est

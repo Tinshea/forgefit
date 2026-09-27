@@ -1,4 +1,4 @@
-# ForgeFit
+# Atlas
 
 Suivi d'entraînement et hub santé. Microservice conteneurisé : API Node/Express,
 front React/Vite, PostgreSQL avec modèle santé dynamique (JSONB).
@@ -7,7 +7,7 @@ front React/Vite, PostgreSQL avec modèle santé dynamique (JSONB).
 
 ```bash
 cp .env.example .env          # ajuster POSTGRES_PASSWORD et WEBHOOK_SECRET
-docker network create forgefit-mesh   # réseau partagé du pipeline de données
+docker network create atlas-mesh   # réseau partagé du pipeline de données
 docker compose up -d --build
 docker compose exec api npm run ingest   # charge les 1324 exercices et les classe
 ```
@@ -16,8 +16,8 @@ docker compose exec api npm run ingest   # charge les 1324 exercices et les clas
 - API : http://localhost:3000/api/health
 
 `db` n'expose aucun port sur l'hôte : il n'est joignable que depuis le réseau
-interne `forgefit-internal`. `api` est en plus attaché à `forgefit-mesh`, où les
-services voisins l'atteignent à `http://forgefit-api:3000`.
+interne `atlas-internal`. `api` est en plus attaché à `atlas-mesh`, où les
+services voisins l'atteignent à `http://atlas-api:3000`.
 
 ## Démarrage (sans Docker)
 
